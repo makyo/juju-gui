@@ -89,12 +89,6 @@ const UserMenu = enhanceWithClickOutside(React.createClass({
           <li className="header-menu__menu-list-item
             header-menu__menu-list-item-with-link"
             role="menuitem" tabIndex="0">
-            <a className="header-menu__menu-list-item-link"
-              role="button" onClick={this._handleAccountClick}>Account</a>
-          </li>
-          <li className="header-menu__menu-list-item
-            header-menu__menu-list-item-with-link"
-            role="menuitem" tabIndex="0">
             {logoutLink}
           </li>
         </ul>
