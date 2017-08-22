@@ -148,14 +148,14 @@ class DeploymentFlow extends React.Component {
           this.state.cloud.name === 'aws');
         break;
       case 'machines':
-        let machineChanges = groupedChanges._addMachines;
-        Object.keys(groupedChanges._removeMachines).forEach((k) => {
-          machineChanges[k] = groupedChanges._removeMachines[k];
+        let machineChanges = groupedChanges._addMachines || {};
+        Object.keys(groupedChanges._destroyMachines || {}).forEach((k) => {
+          machineChanges[k] = groupedChanges._destroyMachines[k];
         })
         completed = false;
         disabled = !hasCloud || !hasCredential;
-        visible = loggedIn && addMachines &&
-          Object.keys(addMachines).length > 0;
+        visible = loggedIn && machineChanges &&
+          Object.keys(machineChanges).length > 0;
         break;
       case 'services':
         completed = false;
@@ -750,7 +750,7 @@ class DeploymentFlow extends React.Component {
           formatConstraints={this.props.formatConstraints}
           generateMachineDetails={this.props.generateMachineDetails}
           addedMachines={this.props.groupedChanges._addMachines}
-          removedMachines={this.props.groupedChanges._removeMachines} />
+          removedMachines={this.props.groupedChanges._destroyMachines} />
       </juju.components.DeploymentSection>);
   }
 
