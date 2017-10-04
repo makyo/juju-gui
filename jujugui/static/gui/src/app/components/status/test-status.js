@@ -1,21 +1,24 @@
 /* Copyright (C) 2017 Canonical Ltd. */
-
 'use strict';
 
-var juju = {components: {}}; // eslint-disable-line no-unused-vars
+const React = require('react');
+
+const shapeup = require('shapeup');
+
+const Status = require('./status');
+const BasicTable = require('../basic-table/basic-table');
+const Panel = require('../panel/panel');
+
+const jsTestUtils = require('../../utils/component-test-utils');
 
 describe('Status', function() {
+  let changeState;
   let defaultModel;
   let emptyDB;
-
-  beforeAll(function(done) {
-    // By loading this file it adds the component to the juju components.
-    YUI().use('status', () => {
-      done();
-    });
-  });
+  let generatePath;
 
   beforeEach(() => {
+    changeState = sinon.stub();
     defaultModel = {
       cloud: 'aws',
       environmentName: 'my-model',
@@ -25,48 +28,49 @@ describe('Status', function() {
     };
     emptyDB = {
       machines: {
-        map: sinon.stub(),
-        size: sinon.stub().withArgs().returns(0)
+        filter: sinon.stub().returns([])
       },
       relations: {
-        map: sinon.stub(),
-        size: sinon.stub().withArgs().returns(0)
+        filter: sinon.stub().returns([])
       },
       remoteServices: {
         map: sinon.stub(),
         size: sinon.stub().withArgs().returns(0)
       },
       services: {
-        each: sinon.stub(),
-        map: sinon.stub(),
-        size: sinon.stub().withArgs().returns(0)
+        filter: sinon.stub().returns([]),
+        getById: sinon.stub()
       }
     };
+    generatePath = sinon.stub();
   });
 
   // Render the component with the given db and optional model.
   // Return an object with the instance and the output.
   const render = (db, model=defaultModel) => {
-    const propTypes = window.juju.components.Status.propTypes;
+    const propTypes = Status.propTypes;
     const renderer = jsTestUtils.shallowRender(
-      <window.juju.components.Status
+      <Status
+        changeState={changeState}
         db={shapeup.fromShape(db, propTypes.db)}
+        generatePath={generatePath}
         model={shapeup.fromShape(model, propTypes.model)}
         urllib={shapeup.fromShape(window.jujulib.URL, propTypes.urllib)}
       />, true
     );
     return {
       instance: renderer.getMountedInstance(),
-      output: renderer.getRenderOutput()
+      output: renderer.getRenderOutput(),
+      renderer: renderer
     };
   };
 
   // Wrap the given element into the shared component boilerplate.
   const wrap = element => {
     return (
-      <juju.components.Panel instanceName="status-view" visible={true}>
+      <Panel instanceName="status-view" visible={true}>
         {element}
-      </juju.components.Panel>
+      </Panel>
     );
   };
 
@@ -75,7 +79,7 @@ describe('Status', function() {
     const djangoUnits = [{
       agentStatus: 'idle',
       displayName: 'django/0',
-      id: 'id0',
+      id: 'django/id0',
       machine: '1',
       public_address: '1.2.3.4',
       portRanges: [
@@ -87,7 +91,7 @@ describe('Status', function() {
     }, {
       agentStatus: 'executing',
       displayName: 'django/1',
-      id: 'id1',
+      id: 'django/id1',
       machine: '2',
       public_address: '1.2.3.5',
       portRanges: [
@@ -95,29 +99,83 @@ describe('Status', function() {
       ],
       workloadStatus: 'error',
       workloadStatusMessage: 'exterminate!'
-    }];
-    const applications = [{
-      getAttrs: sinon.stub().withArgs().returns({
-        charm: '~who/xenial/django-42',
-        name: 'django',
-        status: {current: 'active'},
-        units: {size: sinon.stub().withArgs().returns(djangoUnits.length)},
-        workloadVersion: '1.10'
-      }),
-      get: sinon.stub().withArgs('units').returns({
-        each: func => djangoUnits.forEach(func)
-      })
     }, {
-      getAttrs: sinon.stub().withArgs().returns({
-        charm: 'haproxy-47',
-        name: 'ha',
-        status: {current: 'error'},
-        units: {size: sinon.stub().withArgs().returns(0)},
-        workloadVersion: ''
-      }),
-      get: sinon.stub().withArgs('units').returns({
-        each: func => {}
-      })
+      // Unplaced units are excluded.
+      agentStatus: '',
+      displayName: 'django/2',
+      id: 'django/id2',
+      public_address: '',
+      portRanges: [],
+      workloadStatus: '',
+      workloadStatusMessage: ''
+    }, {
+      // Uncommitted units are excluded.
+      agentStatus: '',
+      displayName: 'django/3',
+      id: 'django/id3',
+      machine: 'new42',
+      public_address: '',
+      portRanges: [],
+      workloadStatus: '',
+      workloadStatusMessage: ''
+    }];
+    const django = {
+      charm: '~who/xenial/django-42',
+      exposed: true,
+      icon: 'django.svg',
+      id: 'django',
+      name: 'django',
+      pending: false,
+      status: {current: 'active'},
+      units: djangoUnits,
+      workloadVersion: '1.10'
+    };
+    const haproxyUnits = [];
+    const haproxy = {
+      charm: 'haproxy-47',
+      icon: 'ha.svg',
+      id: 'ha',
+      name: 'ha',
+      pending: false,
+      status: {current: 'error'},
+      units: haproxyUnits,
+      workloadVersion: ''
+    };
+    const mysqlUnits = [];
+    const mysql = {
+      charm: 'mysql-0',
+      icon: 'mysql.svg',
+      name: 'mysql',
+      pending: true,
+      status: {current: ''},
+      units: mysqlUnits,
+      workloadVersion: ''
+    };
+    const applications = [{
+      getAttrs: sinon.stub().withArgs().returns(django),
+      get: key => {
+        if (key === 'units') {
+          return {filter: func => djangoUnits.filter(func)};
+        }
+        return django[key];
+      }
+    }, {
+      getAttrs: sinon.stub().withArgs().returns(haproxy),
+      get: key => {
+        if (key === 'units') {
+          return {filter: func => haproxyUnits.filter(func)};
+        }
+        return haproxy[key];
+      }
+    }, {
+      // Uncommitted applications are excluded.
+      getAttrs: sinon.stub().withArgs().returns(mysql),
+      get: key => {
+        if (key === 'units') {
+          return {filter: func => mysqlUnits.filter(func)};
+        }
+        return mysql[key];
+      }
     }];
     const machines = [{
       agent_state: 'pending',
@@ -135,8 +193,18 @@ describe('Status', function() {
       instance_id: 'machine-2',
       public_address: '1.2.3.7',
       series: 'trusty'
+    }, {
+      // Uncommitted machines are excluded.
+      agent_state: '',
+      agent_state_info: '',
+      displayName: '3',
+      id: 'new1',
+      instance_id: '',
+      public_address: '',
+      series: 'trusty'
     }];
     const relations = [{
+      get: sinon.stub().withArgs('pending').returns(false),
       getAttrs: sinon.stub().withArgs().returns({
         endpoints: [[
           'mysql', {name: 'cluster', role: 'peer'}
@@ -144,6 +212,7 @@ describe('Status', function() {
         id: 'rel1'
       })
     }, {
+      get: sinon.stub().withArgs('pending').returns(false),
       getAttrs: sinon.stub().withArgs().returns({
         endpoints: [[
           'haproxy', {name: 'website', role: 'provider'}
@@ -151,6 +220,13 @@ describe('Status', function() {
           'wordpress', {name: 'proxy', role: 'requirer'}
         ]],
         id: 'rel2'
+      })
+    }, {
+      // Uncommitted relations are excluded.
+      get: sinon.stub().withArgs('pending').returns(true),
+      getAttrs: sinon.stub().withArgs().returns({
+        endpoints: [],
+        id: 'rel3'
       })
     }];
     const remoteApplications = [{
@@ -166,23 +242,26 @@ describe('Status', function() {
         url: 'local:admin/my.mongo'
       })
     }];
+    const getById = sinon.stub();
+    getById.withArgs('django').returns(applications[0]);
+    getById.withArgs('haproxy').returns(applications[1]);
+    getById.withArgs('mysql').returns(applications[2]);
     return {
       machines: {
-        size: sinon.stub().withArgs().returns(machines.length),
-        map: func => machines.map(func)
+        filter: func => machines.filter(func),
+        size: sinon.stub().withArgs().returns(machines.length)
       },
       relations: {
-        size: sinon.stub().withArgs().returns(relations.length),
-        map: func => relations.map(func)
+        filter: func => relations.filter(func),
+        size: sinon.stub().withArgs().returns(relations.length)
       },
       remoteServices: {
         size: sinon.stub().withArgs().returns(remoteApplications.length),
         map: func => remoteApplications.map(func)
       },
       services: {
-        size: sinon.stub().withArgs().returns(applications.length),
-        map: func => applications.map(func),
-        each: func => applications.forEach(func)
+        filter: func => applications.filter(func),
+        getById: getById
       }
     };
   };
@@ -202,78 +281,226 @@ describe('Status', function() {
     const comp = render(emptyDB);
     const expectedOutput = wrap(
       <div className="status-view__content">
-        <juju.components.BasicTable
-          headers={[{
-            content: 'Model',
-            columnSize: 3
-          }, {
-            content: 'Cloud/Region',
-            columnSize: 3
-          }, {
-            content: 'Version',
-            columnSize: 3
-          }, {
-            content: 'SLA',
-            columnSize: 3
-          }]}
-          key="model"
-          rows={[{
-            columns: [{
-              columnSize: 3,
-              content: 'my-model'
+        <div key="model">
+          <div className="twelve-col no-margin-bottom">
+            <div className="eight-col">
+              <h2>
+                my-model
+                <span
+                  className={'status-view__traffic-light ' +
+                    'status-view__traffic-light--ok'}
+                  onClick={sinon.stub()}
+                  role="button"
+                  title="Everything is OK"
+                  tabIndex="0">
+                </span>
+              </h2>
+            </div>
+            <div className="status-view__filter-label two-col">
+              Filter status:
+            </div>
+            <div className="status-view__filter two-col last-col">
+              <select className="status-view__filter-select"
+                onChange={sinon.stub()}
+                value="none">
+                <option className="status-view__filter-option"
+                  key="none"
+                  value="none">
+                  none
+                </option>
+                <option className="status-view__filter-option"
+                  key="error"
+                  value="error">
+                  error
+                </option>
+                <option className="status-view__filter-option"
+                  key="pending"
+                  value="pending">
+                  pending
+                </option>
+                <option className="status-view__filter-option"
+                  key="ok"
+                  value="ok">
+                  ok
+                </option>
+              </select>
+            </div>
+          </div>
+          <BasicTable
+            headers={[{
+              content: 'Cloud/Region',
+              columnSize: 2
             }, {
-              columnSize: 3,
-              content: 'aws/neutral zone'
+              content: 'Version',
+              columnSize: 2
             }, {
-              columnSize: 3,
-              content: '2.42.47'
+              content: 'SLA',
+              columnSize: 1
             }, {
-              columnSize: 3,
-              content: 'advanced'
-            }],
-            key: 'model'
-          }]} />
+              content: 'Applications',
+              columnSize: 2
+            }, {
+              content: 'Remote applications',
+              columnSize: 2
+            }, {
+              content: 'Units',
+              columnSize: 1
+            }, {
+              content: 'Machines',
+              columnSize: 1
+            }, {
+              content: 'Relations',
+              columnSize: 1
+            }]}
+            rows={[{
+              columns: [{
+                columnSize: 2,
+                content: 'aws/neutral zone'
+              }, {
+                columnSize: 2,
+                content: '2.42.47'
+              }, {
+                columnSize: 1,
+                content: 'advanced'
+              }, {
+                columnSize: 2,
+                content: 0
+              }, {
+                columnSize: 2,
+                content: 0
+              }, {
+                columnSize: 1,
+                content: 0
+              }, {
+                columnSize: 1,
+                content: 0
+              }, {
+                columnSize: 1,
+                content: 0
+              }],
+              key: 'model'
+            }]} />
+        </div>
       </div>
     );
     expect(comp.output).toEqualJSX(expectedOutput);
+  });
+
+  it('can display status by priority', () => {
+    const comp = render(makeDB());
+    const unitSection = comp.output.props.children.props.children[3];
+    assert.deepEqual(
+      unitSection.props.rows[1].classes, ['status-view__table-row--error']);
   });
 
   it('renders with entities', () => {
     const comp = render(makeDB());
     const expectedOutput = wrap(
       <div className="status-view__content">
-        <juju.components.BasicTable
-          headers={[{
-            content: 'Model',
-            columnSize: 3
-          }, {
-            content: 'Cloud/Region',
-            columnSize: 3
-          }, {
-            content: 'Version',
-            columnSize: 3
-          }, {
-            content: 'SLA',
-            columnSize: 3
-          }]}
-          key="model"
-          rows={[{
-            columns: [{
-              columnSize: 3,
-              content: 'my-model'
+        <div key="model">
+          <div className="twelve-col no-margin-bottom">
+            <div className="eight-col">
+              <h2>
+                my-model
+                <span
+                  className={'status-view__traffic-light ' +
+                    'status-view__traffic-light--ok'}
+                  onClick={sinon.stub()}
+                  role="button"
+                  title="Everything is OK"
+                  tabIndex="0">
+                </span>
+              </h2>
+            </div>
+            <div className="status-view__filter-label two-col">
+              Filter status:
+            </div>
+            <div className="status-view__filter two-col last-col">
+              <select className="status-view__filter-select"
+                onChange={sinon.stub()}
+                value="none">
+                <option className="status-view__filter-option"
+                  key="none"
+                  value="none">
+                  none
+                </option>
+                <option className="status-view__filter-option"
+                  key="error"
+                  value="error">
+                  error
+                </option>
+                <option className="status-view__filter-option"
+                  key="pending"
+                  value="pending">
+                  pending
+                </option>
+                <option className="status-view__filter-option"
+                  key="ok"
+                  value="ok">
+                  ok
+                </option>
+              </select>
+            </div>
+          </div>
+          <BasicTable
+            headers={[{
+              content: 'Cloud/Region',
+              columnSize: 2
             }, {
-              columnSize: 3,
-              content: 'aws/neutral zone'
+              content: 'Version',
+              columnSize: 2
             }, {
-              columnSize: 3,
-              content: '2.42.47'
+              content: 'SLA',
+              columnSize: 1
             }, {
-              columnSize: 3,
-              content: 'advanced'
-            }],
-            key: 'model'
-          }]} />
-        <juju.components.BasicTable
+              content: 'Applications',
+              columnSize: 2
+            }, {
+              content: 'Remote applications',
+              columnSize: 2
+            }, {
+              content: 'Units',
+              columnSize: 1
+            }, {
+              content: 'Machines',
+              columnSize: 1
+            }, {
+              content: 'Relations',
+              columnSize: 1
+            }]}
+            rows={[{
+              columns: [{
+                columnSize: 2,
+                content: 'aws/neutral zone'
+              }, {
+                columnSize: 2,
+                content: '2.42.47'
+              }, {
+                columnSize: 1,
+                content: 'advanced'
+              }, {
+                columnSize: 2,
+                content: 2
+              }, {
+                columnSize: 2,
+                content: 2
+              }, {
+                columnSize: 1,
+                content: 0
+              }, {
+                columnSize: 1,
+                content: 2
+              }, {
+                columnSize: 1,
+                content: 2
+              }],
+              key: 'model'
+            }]} />
+        </div>
+        <BasicTable
+          filterPredicate={sinon.stub()}
+          headerClasses={['status-view__table-header']}
+          headerColumnClasses={['status-view__table-header-column']}
           headers={[{
             content: 'SAAS',
             columnSize: 3
@@ -288,6 +515,8 @@ describe('Status', function() {
             columnSize: 3
           }]}
           key="remote-applications"
+          rowClasses={['status-view__table-row']}
+          rowColumnClasses={['status-view__table-column']}
           rows={[{
             columns: [{
               columnSize: 3,
@@ -302,6 +531,7 @@ describe('Status', function() {
               columnSize: 3,
               content: 'admin/saas.haproxy'
             }],
+            extraData: 'ok',
             key: 'local:admin/saas.haproxy'
           }, {
             columns: [ {
@@ -317,10 +547,17 @@ describe('Status', function() {
               columnSize: 3,
               content: 'admin/my.mongo'
             }],
+            extraData: 'ok',
             key: 'local:admin/my.mongo'
           }]}
-          sort={sinon.stub()} />
-        <juju.components.BasicTable
+          sort={sinon.stub()}
+          tableClasses={['status-view__table']} />
+        <BasicTable
+          changeState={changeState}
+          filterPredicate={sinon.stub()}
+          generatePath={generatePath}
+          headerClasses={['status-view__table-header']}
+          headerColumnClasses={['status-view__table-header-column']}
           headers={[{
             content: 'Application',
             columnSize: 2
@@ -344,22 +581,45 @@ describe('Status', function() {
             columnSize: 1
           }]}
           key="applications"
+          rowClasses={['status-view__table-row']}
+          rowColumnClasses={['status-view__table-column']}
           rows={[{
+            classes: ['status-view__table-row--ok'],
+            clickState: {
+              gui: {
+                inspector: {
+                  activeComponent: undefined,
+                  id: 'django',
+                  unit: null,
+                  unitStatus: null
+                }
+              }
+            },
             columns: [{
               columnSize: 2,
-              content: 'django'
+              content: (
+                <span>
+                  <img className="status-view__icon"
+                    src="django.svg" />
+                  django
+                </span>)
             }, {
               columnSize: 2,
               content: '1.10'
             }, {
               columnSize: 2,
-              content: <span key="status0" className="ok">active</span>
+              content: <span className="status-view__status--ok">active</span>
             }, {
               columnSize: 1,
               content: 2
             }, {
               columnSize: 2,
-              content: 'u/who/django/xenial'
+              content: (
+                <a className="status-view__link"
+                  href={undefined}
+                  onClick={sinon.stub()}>
+                  u/who/django/xenial
+                </a>)
             }, {
               columnSize: 2,
               content: 'jujucharms'
@@ -367,23 +627,45 @@ describe('Status', function() {
               columnSize: 1,
               content: 42
             }],
+            extraData: 'ok',
             key: 'django'
           }, {
+            classes: ['status-view__table-row--error'],
+            clickState: {
+              gui: {
+                inspector: {
+                  activeComponent: undefined,
+                  id: 'ha',
+                  unit: null,
+                  unitStatus: null
+                }
+              }
+            },
             columns: [{
               columnSize: 2,
-              content: 'ha'
+              content: (
+                <span>
+                  <img className="status-view__icon"
+                    src="ha.svg" />
+                  ha
+                </span>)
             }, {
               columnSize: 2,
               content: ''
             }, {
               columnSize: 2,
-              content: <span key="status1" className="error">error</span>
+              content: <span className="status-view__status--error">error</span>
             }, {
               columnSize: 1,
               content: 0
             }, {
               columnSize: 2,
-              content: 'haproxy'
+              content: (
+                <a className="status-view__link"
+                  href={undefined}
+                  onClick={sinon.stub()}>
+                  haproxy
+                </a>)
             }, {
               columnSize: 2,
               content: 'jujucharms'
@@ -391,10 +673,17 @@ describe('Status', function() {
               columnSize: 1,
               content: 47
             }],
+            extraData: 'error',
             key: 'ha'
           }]}
-          sort={sinon.stub()} />
-        <juju.components.BasicTable
+          sort={sinon.stub()}
+          tableClasses={['status-view__table']} />
+        <BasicTable
+          changeState={changeState}
+          filterPredicate={sinon.stub()}
+          generatePath={generatePath}
+          headerClasses={['status-view__table-header']}
+          headerColumnClasses={['status-view__table-header-column']}
           headers={[{
             content: 'Unit',
             columnSize: 2
@@ -418,22 +707,55 @@ describe('Status', function() {
             columnSize: 2
           }]}
           key="units"
+          rowClasses={['status-view__table-row']}
+          rowColumnClasses={['status-view__table-column']}
           rows={[{
+            classes: ['status-view__table-row--pending'],
+            clickState: {
+              gui: {
+                inspector: {
+                  activeComponent: 'unit',
+                  id: 'django',
+                  unit: 'id0'
+                }
+              }
+            },
             columns: [{
               columnSize: 2,
-              content: 'django/0'
+              content: (
+                <span>
+                  <img className="status-view__icon"
+                    src="django.svg" />
+                  django/0
+                </span>)
             }, {
               columnSize: 2,
-              content: <span key="workload0" className="">installing</span>
+              content: (
+                <span className="status-view__status--pending">
+                  installing
+                </span>)
             }, {
               columnSize: 2,
-              content: <span key="agent0" className="ok">idle</span>
+              content: (
+                <span className="status-view__status--ok">
+                  idle
+                </span>)
             }, {
               columnSize: 1,
-              content: '1'
+              content: (
+                <a className="status-view__link"
+                  href={undefined}
+                  onClick={sinon.stub()}>
+                  1
+                </a>)
             }, {
               columnSize: 2,
-              content: '1.2.3.4'
+              content: (
+                <a className="status-view__link"
+                  href="http://1.2.3.4:80"
+                  target="_blank">
+                  1.2.3.4
+                </a>)
             }, {
               columnSize: 1,
               content: '80/tcp, 443/tcp'
@@ -441,23 +763,53 @@ describe('Status', function() {
               columnSize: 2,
               content: 'these are the voyages'
             }],
-            key: 'id0'
+            extraData: 'pending',
+            key: 'django/id0'
           }, {
+            classes: ['status-view__table-row--error'],
+            clickState: {
+              gui: {
+                inspector: {
+                  activeComponent: 'unit',
+                  id: 'django',
+                  unit: 'id1'
+                }
+              }
+            },
             columns: [{
               columnSize: 2,
-              content: 'django/1'
+              content: (
+                <span>
+                  <img className="status-view__icon"
+                    src="django.svg" />
+                  django/1
+                </span>)
             }, {
               columnSize: 2,
-              content: <span key="workload1" className="error">error</span>
+              content: (
+                <span className="status-view__status--error">error</span>)
             }, {
               columnSize: 2,
-              content: <span key="agent1" className="">executing</span>
+              content: (
+                <span className="status-view__status--pending">
+                  executing
+                </span>)
             }, {
               columnSize: 1,
-              content: '2'
+              content: (
+                <a className="status-view__link"
+                  href={undefined}
+                  onClick={sinon.stub()}>
+                  2
+                </a>)
             }, {
               columnSize: 2,
-              content: '1.2.3.5'
+              content: (
+                <a className="status-view__link"
+                  href="http://1.2.3.5:80"
+                  target="_blank">
+                  1.2.3.5
+                </a>)
             }, {
               columnSize: 1,
               content: '80-88/udp'
@@ -465,13 +817,20 @@ describe('Status', function() {
               columnSize: 2,
               content: 'exterminate!'
             }],
-            key: 'id1'
+            extraData: 'error',
+            key: 'django/id1'
           }]}
-          sort={sinon.stub()} />
-        <juju.components.BasicTable
+          sort={sinon.stub()}
+          tableClasses={['status-view__table']} />
+        <BasicTable
+          changeState={changeState}
+          filterPredicate={sinon.stub()}
+          generatePath={generatePath}
+          headerClasses={['status-view__table-header']}
+          headerColumnClasses={['status-view__table-header-column']}
           headers={[{
             content: 'Machine',
-            columnSize: 2
+            columnSize: 1
           }, {
             content: 'State',
             columnSize: 2
@@ -480,60 +839,88 @@ describe('Status', function() {
             columnSize: 2
           }, {
             content: 'Instance ID',
-            columnSize: 2
+            columnSize: 3
           }, {
             content: 'Series',
-            columnSize: 2
+            columnSize: 1
           }, {
             content: 'Message',
-            columnSize: 2
+            columnSize: 3
           }]}
           key="machines"
+          rowClasses={['status-view__table-row']}
+          rowColumnClasses={['status-view__table-column']}
           rows={[{
+            classes: ['status-view__table-row--pending'],
+            clickState: {
+              gui: {
+                machines: 'm1',
+                status: null
+              }
+            },
             columns: [{
-              columnSize: 2,
+              columnSize: 1,
               content: '1'
             }, {
               columnSize: 2,
-              content: (<span key="agent0" className="">pending</span>)
+              content: (
+                <span className="status-view__status--pending">
+                  pending
+                </span>)
             }, {
               columnSize: 2,
               content: '1.2.3.6'
             }, {
-              columnSize: 2,
+              columnSize: 3,
               content: 'machine-1'
             }, {
-              columnSize: 2,
+              columnSize: 1,
               content: 'zesty'
             }, {
-              columnSize: 2,
+              columnSize: 3,
               content: ''
             }],
+            extraData: 'pending',
             key: 'm1'
           }, {
+            classes: ['status-view__table-row--ok'],
+            clickState: {
+              gui: {
+                machines: 'm2',
+                status: null
+              }
+            },
             columns: [{
-              columnSize: 2,
+              columnSize: 1,
               content: '2'
             }, {
               columnSize: 2,
-              content: (<span key="agent1" className="ok">started</span>)
+              content: (
+                <span className="status-view__status--ok">
+                  started
+                </span>)
             }, {
               columnSize: 2,
               content: '1.2.3.7'
             }, {
-              columnSize: 2,
+              columnSize: 3,
               content: 'machine-2'
             }, {
-              columnSize: 2,
+              columnSize: 1,
               content: 'trusty'
             }, {
-              columnSize: 2,
+              columnSize: 3,
               content: 'yes, I am started'
             }],
+            extraData: 'ok',
             key: 'm2'
           }]}
-          sort={sinon.stub()} />
-        <juju.components.BasicTable
+          sort={sinon.stub()}
+          tableClasses={['status-view__table']} />
+        <BasicTable
+          filterPredicate={sinon.stub()}
+          headerClasses={['status-view__table-header']}
+          headerColumnClasses={['status-view__table-header-column']}
           headers={[{
             content: 'Relation',
             columnSize: 3
@@ -548,16 +935,32 @@ describe('Status', function() {
             columnSize: 3
           }]}
           key="relations"
+          rowClasses={['status-view__table-row']}
+          rowColumnClasses={['status-view__table-column']}
           rows={[{
             columns: [{
               columnSize: 3,
               content: 'cluster'
             }, {
               columnSize: 3,
-              content: 'mysql'
+              content: (
+                <a className="status-view__link"
+                  href={undefined}
+                  onClick={sinon.stub()}>
+                  <img className="status-view__icon"
+                    src="mysql.svg" />
+                  mysql
+                </a>)
             }, {
               columnSize: 3,
-              content: 'mysql'
+              content: (
+                <a className="status-view__link"
+                  href={undefined}
+                  onClick={sinon.stub()}>
+                  <img className="status-view__icon"
+                    src="mysql.svg" />
+                  mysql
+                </a>)
             }, {
               columnSize: 3,
               content: 'peer'
@@ -569,20 +972,177 @@ describe('Status', function() {
               content: 'website'
             }, {
               columnSize: 3,
-              content: 'wordpress'
+              content: (<span>wordpress</span>)
             }, {
               columnSize: 3,
-              content: 'haproxy'
+              content: (
+                <a className="status-view__link"
+                  href={undefined}
+                  onClick={sinon.stub()}>
+                  <img className="status-view__icon"
+                    src="ha.svg" />
+                  haproxy
+                </a>)
             }, {
               columnSize: 3,
               content: 'regular'
             }],
             key: 'rel2'
           }]}
-          sort={sinon.stub()} />
+          sort={sinon.stub()}
+          tableClasses={['status-view__table']} />
       </div>
     );
     expect(comp.output).toEqualJSX(expectedOutput);
   });
 
+  it('can link to the DNS address for a unit', () => {
+    const comp = render(makeDB());
+    const wrapper = comp.output.props.children;
+    const units = wrapper.props.children[3];
+    const unit = units.props.rows[0];
+    const address = unit.columns[4].content;
+    const expected = (
+      <a className="status-view__link"
+        href="http://1.2.3.4:80"
+        target="_blank">
+        1.2.3.4
+      </a>);
+    expect(address).toEqualJSX(expected);
+  });
+
+  it('can navigate to charms from the app list', () => {
+    const comp = render(makeDB());
+    const content = comp.output.props.children;
+    const section = content.props.children[2];
+    const column = section.props.rows[0].columns[4];
+    column.content.props.onClick({preventDefault: sinon.stub()});
+    assert.equal(changeState.callCount, 1);
+    assert.deepEqual(
+      changeState.args[0][0], {store: 'u/who/django/xenial/42'});
+  });
+
+  it('can navigate to machines from the unit list', () => {
+    const comp = render(makeDB());
+    const content = comp.output.props.children;
+    const section = content.props.children[3];
+    const column = section.props.rows[0].columns[3];
+    column.content.props.onClick({
+      stopPropagation: sinon.stub(),
+      preventDefault: sinon.stub()
+    });
+    assert.equal(changeState.callCount, 1);
+    assert.deepEqual(
+      changeState.args[0][0], {gui: {machines: '1', status: null}});
+  });
+
+  it('can navigate to provided apps from the relation list', () => {
+    const comp = render(makeDB());
+    const content = comp.output.props.children;
+    const section = content.props.children[5];
+    const column = section.props.rows[0].columns[1];
+    column.content.props.onClick({preventDefault: sinon.stub()});
+    assert.equal(changeState.callCount, 1);
+    assert.deepEqual(changeState.args[0][0], {
+      gui: {
+        inspector: {
+          id: 'mysql',
+          activeComponent: undefined,
+          unit: null,
+          unitStatus: null
+        }
+      }
+    });
+  });
+
+  it('can navigate to consumed apps from the relation list', () => {
+    const comp = render(makeDB());
+    const content = comp.output.props.children;
+    const section = content.props.children[5];
+    const column = section.props.rows[0].columns[2];
+    column.content.props.onClick({preventDefault: sinon.stub()});
+    assert.equal(changeState.callCount, 1);
+    assert.deepEqual(changeState.args[0][0], {
+      gui: {
+        inspector: {
+          id: 'mysql',
+          activeComponent: undefined,
+          unit: null,
+          unitStatus: null
+        }
+      }
+    });
+  });
+
+  it('can filter by status', () => {
+    const comp = render(makeDB());
+    const modelSection = comp.output.props.children.props.children[0];
+    const titleRow = modelSection.props.children[0];
+    const selectBox = titleRow.props.children[2].props.children;
+    selectBox.props.onChange({currentTarget: {value: 'error'}});
+    assert.equal(comp.instance.state.statusFilter, 'error');
+  });
+
+  it('can filter by nothing', () => {
+    const comp = render(makeDB());
+    const modelSection = comp.output.props.children.props.children[0];
+    const titleRow = modelSection.props.children[0];
+    const selectBox = titleRow.props.children[2].props.children;
+    selectBox.props.onChange({currentTarget: {value: 'none'}});
+    assert.equal(comp.instance.state.filter, null);
+  });
+
+  it('can show a highest status notification', () => {
+    const comp = render(makeDB());
+    const expectedOutput = (
+      <div className="twelve-col no-margin-bottom">
+        <div className="eight-col">
+          <h2>
+            my-model
+            <span
+              className={'status-view__traffic-light ' +
+                'status-view__traffic-light--error'}
+              onClick={sinon.stub()}
+              role="button"
+              title="Items are in error"
+              tabIndex="0">
+            </span>
+          </h2>
+        </div>
+        <div className="status-view__filter-label two-col">
+          Filter status:
+        </div>
+        <div className="status-view__filter two-col last-col">
+          <select className="status-view__filter-select"
+            onChange={sinon.stub()}
+            value="none">
+            <option className="status-view__filter-option"
+              key="none"
+              value="none">
+              none
+            </option>
+            <option className="status-view__filter-option"
+              key="error"
+              value="error">
+              error
+            </option>
+            <option className="status-view__filter-option"
+              key="pending"
+              value="pending">
+              pending
+            </option>
+            <option className="status-view__filter-option"
+              key="ok"
+              value="ok">
+              ok
+            </option>
+          </select>
+        </div>
+      </div>);
+    comp.instance.componentDidUpdate();
+    const output = comp.renderer.getRenderOutput();
+    const wrapper = output.props.children;
+    const header = wrapper.props.children[0];
+    expect(header.props.children[0]).toEqualJSX(expectedOutput);
+  });
 });

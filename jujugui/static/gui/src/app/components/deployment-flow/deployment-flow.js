@@ -1,22 +1,26 @@
-/*
-This file is part of the Juju GUI, which lets users view and manage Juju
-environments within a graphical interface (https://launchpad.net/juju-gui).
-Copyright (C) 2016 Canonical Ltd.
-
-This program is free software: you can redistribute it and/or modify it under
-the terms of the GNU Affero General Public License version 3, as published by
-the Free Software Foundation.
-
-This program is distributed in the hope that it will be useful, but WITHOUT
-ANY WARRANTY; without even the implied warranties of MERCHANTABILITY,
-SATISFACTORY QUALITY, or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Affero
-General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License along
-with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
+/* Copyright (C) 2017 Canonical Ltd. */
 'use strict';
+
+const classNames = require('classnames');
+const PropTypes = require('prop-types');
+const React = require('react');
+
+const AccordionSection = require('../accordion-section/accordion-section');
+const DeploymentBudget = require('./budget/budget');
+const DeploymentCloud = require('./cloud/cloud');
+const DeploymentCredential = require('./credential/credential');
+const DeploymentDirectDeploy = require('./direct-deploy/direct-deploy');
+const DeploymentLogin = require('./login/login');
+const DeploymentMachines = require('./machines/machines');
+const DeploymentModelName = require('./model-name/model-name');
+const DeploymentPanel = require('./panel/panel');
+const DeploymentPayment = require('./payment/payment');
+const DeploymentSection = require('./section/section');
+const DeploymentServices = require('./services/services');
+const DeploymentSSHKey = require('./sshkey/sshkey');
+const DeploymentVPC = require('./vpc/vpc');
+const Spinner = require('../spinner/spinner');
+const GenericButton = require('../generic-button/generic-button');
 
 // Define the VPC ID zero value.
 const INITIAL_VPC_ID = null;
@@ -40,6 +44,7 @@ class DeploymentFlow extends React.Component {
       paymentUser: null,
       region: this.props.region,
       sshKeys: [],
+      lpUsernames: [],
       // The list of term ids for the uncommitted applications.
       terms: this._getTerms() || [],
       // Whether the user has ticked the checked to agree to terms.
@@ -232,6 +237,16 @@ class DeploymentFlow extends React.Component {
   }
 
   /**
+    Store the provided Launchpad usernames in state.
+
+    @method _setLaunchpadUsernames
+    @param {Array} usernames The list of Launchpad usernames
+  */
+  _setLaunchpadUsernames(usernames) {
+    this.setState({lpUsernames: usernames});
+  }
+
+  /**
     Store the provided AWS virtual private cloud value in state.
     In the case the value is set, also set whether to force Juju to use the
     given value, even when it fails the minimum validation criteria.
@@ -346,6 +361,22 @@ class DeploymentFlow extends React.Component {
           });
         },
         ecsOptions);
+    }
+    if (this.state.lpUsernames.length) {
+      this.props.importSSHKeys(
+        this.props.getUserName(),
+        this.state.lpUsernames.map(key => `lp:${key}`),
+        (error, data) => {
+          if (!error) {
+            return;
+          }
+          this.props.addNotification({
+            title: 'Cannot import SSH keys',
+            message: `Cannot import SSH keys: ${error}`,
+            level: 'error'
+          });
+        }
+      );
     }
     if (this.state.vpcId) {
       args.config['vpc-id'] = this.state.vpcId;
@@ -519,20 +550,22 @@ class DeploymentFlow extends React.Component {
       title = <span>Add public SSH keys</span>;
     }
     return (
-      <juju.components.DeploymentSection
+      <DeploymentSection
         completed={status.completed}
         disabled={status.disabled}
         instance="deployment-ssh-key"
         showCheck={true}
         title={title}>
-        <juju.components.DeploymentSSHKey
+        <DeploymentSSHKey
           addNotification={this.props.addNotification}
           cloud={cloud}
           getGithubSSHKeys={this.props.getGithubSSHKeys}
           setSSHKeys={this._setSSHKeys.bind(this)}
+          setLaunchpadUsernames={this._setLaunchpadUsernames.bind(this)}
+          username={this.props.username}
           WebHandler={this.props.WebHandler}
         />
-      </juju.components.DeploymentSection>);
+      </DeploymentSection>);
   }
 
   /**
@@ -548,10 +581,10 @@ class DeploymentFlow extends React.Component {
     }
     return (
       <div className="deployment-vpc">
-        <juju.components.AccordionSection
+        <AccordionSection
           title={<span>Add AWS VPC ID <em>(optional)</em></span>}>
-          <juju.components.DeploymentVPC setVPCId={this._setVPCId.bind(this)} />
-        </juju.components.AccordionSection>
+          <DeploymentVPC setVPCId={this._setVPCId.bind(this)} />
+        </AccordionSection>
       </div>);
 
   }
@@ -568,17 +601,17 @@ class DeploymentFlow extends React.Component {
       return;
     }
     return (
-      <juju.components.DeploymentSection
+      <DeploymentSection
         completed={status.completed}
         instance="deployment-model-name"
         showCheck={true}
         title="Set your model name">
-        <juju.components.DeploymentModelName
+        <DeploymentModelName
           acl={this.props.acl}
           ddEntity={this.state.ddEntity}
           modelName={this.props.modelName}
           setModelName={this.props.setModelName} />
-      </juju.components.DeploymentSection>);
+      </DeploymentSection>);
   }
 
   /**
@@ -645,7 +678,7 @@ class DeploymentFlow extends React.Component {
       }
     };
     return (
-      <juju.components.DeploymentLogin
+      <DeploymentLogin
         addNotification={this.props.addNotification}
         callback={callback}
         gisf={this.props.gisf}
@@ -667,14 +700,14 @@ class DeploymentFlow extends React.Component {
     }
     var cloud = this.state.cloud;
     return (
-      <juju.components.DeploymentSection
+      <DeploymentSection
         buttons={this._generateCloudAction()}
         completed={status.completed}
         disabled={status.disabled}
         instance="deployment-cloud"
         showCheck={true}
         title="Choose cloud to deploy to">
-        <juju.components.DeploymentCloud
+        <DeploymentCloud
           acl={this.props.acl}
           addNotification={this.props.addNotification}
           cloud={cloud}
@@ -682,7 +715,7 @@ class DeploymentFlow extends React.Component {
           listClouds={this.props.listClouds}
           getCloudProviderDetails={this.props.getCloudProviderDetails}
           setCloud={this._setCloud.bind(this)} />
-      </juju.components.DeploymentSection>);
+      </DeploymentSection>);
   }
 
   /**
@@ -698,12 +731,12 @@ class DeploymentFlow extends React.Component {
     }
     var cloud = this.state.cloud;
     return (
-      <juju.components.DeploymentSection
+      <DeploymentSection
         completed={status.completed}
         disabled={status.disabled}
         instance="deployment-credential"
         showCheck={false}>
-        <juju.components.DeploymentCredential
+        <DeploymentCredential
           acl={this.props.acl}
           addNotification={this.props.addNotification}
           credential={this.state.credential}
@@ -722,7 +755,7 @@ class DeploymentFlow extends React.Component {
           user={this.props.getUserName()}
           validateForm={this.props.validateForm} />
         {this._generateVPCSection()}
-      </juju.components.DeploymentSection>);
+      </DeploymentSection>);
   }
 
   /**
@@ -738,20 +771,19 @@ class DeploymentFlow extends React.Component {
     }
     var cloud = this.state.cloud;
     return (
-      <juju.components.DeploymentSection
+      <DeploymentSection
         completed={status.completed}
         disabled={status.disabled}
         instance="deployment-machines"
         showCheck={false}
         title="Machines to be provisioned">
-        <juju.components.DeploymentMachines
+        <DeploymentMachines
           acl={this.props.acl}
           cloud={cloud}
           formatConstraints={this.props.formatConstraints}
           generateMachineDetails={this.props.generateMachineDetails}
-          addedMachines={this.props.groupedChanges._addMachines}
-          removedMachines={this.props.groupedChanges._destroyMachines} />
-      </juju.components.DeploymentSection>);
+          machines={this.props.groupedChanges._addMachines} />
+      </DeploymentSection>);
   }
 
   /**
@@ -767,9 +799,9 @@ class DeploymentFlow extends React.Component {
     }
     return (
       <div className="deployment-services">
-        <juju.components.AccordionSection
+        <AccordionSection
           title="Model changes">
-          <juju.components.DeploymentServices
+          <DeploymentServices
             acl={this.props.acl}
             addNotification={this.props.addNotification}
             changesFilterByParent={this.props.changesFilterByParent}
@@ -784,7 +816,7 @@ class DeploymentFlow extends React.Component {
             getServiceByName={this.props.getServiceByName}
             showTerms={this.props.showTerms}
             withPlans={this.props.withPlans} />
-        </juju.components.AccordionSection>
+        </AccordionSection>
       </div>);
   }
 
@@ -800,19 +832,19 @@ class DeploymentFlow extends React.Component {
       return;
     }
     return (
-      <juju.components.DeploymentSection
+      <DeploymentSection
         completed={status.completed}
         disabled={status.disabled}
         instance="deployment-budget"
         showCheck={true}
         title="Confirm budget">
-        <juju.components.DeploymentBudget
+        <DeploymentBudget
           acl={this.props.acl}
           addNotification={this.props.addNotification}
           listBudgets={this.props.listBudgets}
           setBudget={this._setBudget.bind(this)}
           user={this.props.getUserName()} />
-      </juju.components.DeploymentSection>);
+      </DeploymentSection>);
   }
 
   /**
@@ -827,13 +859,13 @@ class DeploymentFlow extends React.Component {
       return null;
     }
     return (
-      <juju.components.DeploymentSection
+      <DeploymentSection
         completed={status.completed}
         disabled={status.disabled}
         instance="deployment-payment"
         showCheck={true}
         title="Payment details">
-        <juju.components.DeploymentPayment
+        <DeploymentPayment
           acl={this.props.acl}
           addNotification={this.props.addNotification}
           createCardElement={this.props.createCardElement}
@@ -845,7 +877,7 @@ class DeploymentFlow extends React.Component {
           setPaymentUser={this._setPaymentUser.bind(this)}
           username={this.props.profileUsername}
           validateForm={this.props.validateForm} />
-      </juju.components.DeploymentSection>);
+      </DeploymentSection>);
   }
 
   /**
@@ -905,12 +937,12 @@ class DeploymentFlow extends React.Component {
         <div className="inner-wrapper deployment-flow__deploy">
           {this._generateAgreementsSection()}
           <div className="deployment-flow__deploy-action">
-            <juju.components.GenericButton
+            <GenericButton
               action={this._handleDeploy.bind(this)}
               disabled={!this._deploymentAllowed()}
               type="positive">
               {deployTitle}
-            </juju.components.GenericButton>
+            </GenericButton>
           </div>
         </div>
       </div>);
@@ -927,14 +959,14 @@ class DeploymentFlow extends React.Component {
       return;
     }
     if (state.loadingEntity) {
-      return (<juju.components.Spinner />);
+      return (<Spinner />);
     }
     if (!state.loadingEntity) {
       // As long as we're not loading the entity then pass what data we do have
       // through to the DirectDeploy component and have it determine what to
       // render.
       return (
-        <juju.components.DeploymentDirectDeploy
+        <DeploymentDirectDeploy
           addNotification={props.addNotification}
           changeState={props.changeState}
           ddData={props.ddData}
@@ -999,7 +1031,7 @@ class DeploymentFlow extends React.Component {
 
   render() {
     return (
-      <juju.components.DeploymentPanel
+      <DeploymentPanel
         changeState={this.props.changeState}
         isDirectDeploy={this.state.isDirectDeploy}
         loggedIn={this.props.isLoggedIn()}
@@ -1016,7 +1048,7 @@ class DeploymentFlow extends React.Component {
         {this._generatePaymentSection()}
         {this._generateDeploySection()}
         {this._generateLogin()}
-      </juju.components.DeploymentPanel>
+      </DeploymentPanel>
     );
   }
 };
@@ -1060,6 +1092,7 @@ DeploymentFlow.propTypes = {
   getUserName: PropTypes.func.isRequired,
   gisf: PropTypes.bool,
   groupedChanges: PropTypes.object.isRequired,
+  importSSHKeys: PropTypes.func.isRequired,
   isLoggedIn: PropTypes.func.isRequired,
   listBudgets: PropTypes.func.isRequired,
   listClouds: PropTypes.func,
@@ -1079,30 +1112,9 @@ DeploymentFlow.propTypes = {
   stats: PropTypes.object,
   updateCloudCredential: PropTypes.func,
   updateModelName: PropTypes.func,
+  username: PropTypes.string,
   validateForm: PropTypes.func.isRequired,
   withPlans: PropTypes.bool
 };
 
-YUI.add('deployment-flow', function() {
-  juju.components.DeploymentFlow = DeploymentFlow;
-}, '0.1.0', {
-  requires: [
-    'accordion-section',
-    'deployment-budget',
-    'deployment-cloud',
-    'deployment-credential',
-    'deployment-direct-deploy',
-    'deployment-login',
-    'deployment-machines',
-    'deployment-model-name',
-    'deployment-panel',
-    'deployment-payment',
-    'deployment-section',
-    'deployment-services',
-    'deployment-ssh-key',
-    'deployment-vpc',
-    'entity-content-diagram',
-    'generic-button',
-    'loading-spinner'
-  ]
-});
+module.exports = DeploymentFlow;

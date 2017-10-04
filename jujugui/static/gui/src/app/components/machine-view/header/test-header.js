@@ -1,42 +1,29 @@
-/*
-This file is part of the Juju GUI, which lets users view and manage Juju
-environments within a graphical interface (https://launchpad.net/juju-gui).
-Copyright (C) 2015 Canonical Ltd.
-
-This program is free software: you can redistribute it and/or modify it under
-the terms of the GNU Affero General Public License version 3, as published by
-the Free Software Foundation.
-
-This program is distributed in the hope that it will be useful, but WITHOUT
-ANY WARRANTY; without even the implied warranties of MERCHANTABILITY,
-SATISFACTORY QUALITY, or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Affero
-General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License along
-with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
+/* Copyright (C) 2017 Canonical Ltd. */
 'use strict';
 
-var juju = {components: {}}; // eslint-disable-line no-unused-vars
+const React = require('react');
+
+const shapeup = require('shapeup');
+
+const MachineViewHeader = require('./header');
+const GenericButton = require('../../generic-button/generic-button');
+const MoreMenu = require('../../more-menu/more-menu');
+const SvgIcon = require('../../svg-icon/svg-icon');
+
+const jsTestUtils = require('../../../utils/component-test-utils');
 
 describe('MachineViewHeader', function() {
-  var acl;
-
-  beforeAll(function(done) {
-    // By loading this file it adds the component to the juju components.
-    YUI().use('machine-view-header', function() { done(); });
-  });
+  let acl;
 
   beforeEach(() => {
-    acl = {isReadOnly: sinon.stub().returns(false)};
+    acl = shapeup.deepFreeze({isReadOnly: () => false});
   });
 
   it('can render', function() {
     // The component is wrapped to handle drag and drop, but we just want to
     // test the internal component so we access it via DecoratedComponent.
-    var output = jsTestUtils.shallowRender(
-      <juju.components.MachineViewHeader.DecoratedComponent
+    const output = jsTestUtils.shallowRender(
+      <MachineViewHeader.DecoratedComponent
         acl={acl}
         canDrop={false}
         connectDropTarget={jsTestUtils.connectDropTarget}
@@ -44,7 +31,7 @@ describe('MachineViewHeader', function() {
         isOver={false}
         title="Sandbox"
         type="machine" />);
-    var expected = (
+    const expected = (
       <div className="machine-view__header">
           Sandbox
         {undefined}
@@ -58,8 +45,8 @@ describe('MachineViewHeader', function() {
   });
 
   it('can render in droppable mode', function() {
-    var output = jsTestUtils.shallowRender(
-      <juju.components.MachineViewHeader.DecoratedComponent
+    const output = jsTestUtils.shallowRender(
+      <MachineViewHeader.DecoratedComponent
         acl={acl}
         canDrop={false}
         connectDropTarget={jsTestUtils.connectDropTarget}
@@ -67,7 +54,7 @@ describe('MachineViewHeader', function() {
         isOver={true}
         title="Sandbox"
         type="machine" />);
-    var expected = (
+    const expected = (
       <div className="machine-view__header machine-view__header--drop">
         {output.props.children}
       </div>);
@@ -75,8 +62,8 @@ describe('MachineViewHeader', function() {
   });
 
   it('can render in drop mode', function() {
-    var output = jsTestUtils.shallowRender(
-      <juju.components.MachineViewHeader.DecoratedComponent
+    const output = jsTestUtils.shallowRender(
+      <MachineViewHeader.DecoratedComponent
         acl={acl}
         canDrop={true}
         connectDropTarget={jsTestUtils.connectDropTarget}
@@ -84,7 +71,7 @@ describe('MachineViewHeader', function() {
         isOver={false}
         title="Sandbox"
         type="machine" />);
-    var expected = (
+    const expected = (
       <div className="machine-view__header machine-view__header--droppable">
         {output.props.children}
       </div>);
@@ -92,9 +79,9 @@ describe('MachineViewHeader', function() {
   });
 
   it('can render with a menu', function() {
-    var menuItems = [];
-    var output = jsTestUtils.shallowRender(
-      <juju.components.MachineViewHeader.DecoratedComponent
+    const menuItems = [];
+    const output = jsTestUtils.shallowRender(
+      <MachineViewHeader.DecoratedComponent
         acl={acl}
         activeMenuItem="name"
         canDrop={false}
@@ -104,10 +91,10 @@ describe('MachineViewHeader', function() {
         menuItems={menuItems}
         title="Sandbox"
         type="machine" />);
-    var expected = (
+    const expected = (
       <div className="machine-view__header">
           Sandbox
-        <juju.components.MoreMenu
+        <MoreMenu
           activeItem="name"
           items={menuItems} />
         <div className="machine-view__header-drop-target">
@@ -120,9 +107,9 @@ describe('MachineViewHeader', function() {
   });
 
   it('can render with a toggle', function() {
-    var action = sinon.stub();
-    var output = jsTestUtils.shallowRender(
-      <juju.components.MachineViewHeader.DecoratedComponent
+    const action = sinon.stub();
+    const output = jsTestUtils.shallowRender(
+      <MachineViewHeader.DecoratedComponent
         acl={acl}
         canDrop={false}
         connectDropTarget={jsTestUtils.connectDropTarget}
@@ -135,17 +122,17 @@ describe('MachineViewHeader', function() {
         }}
         title="Sandbox"
         type="machine" />);
-    var expected = (
+    const expected = (
       <div className="machine-view__header">
           Sandbox
-        <juju.components.GenericButton
+        <GenericButton
           action={action}
           disabled={false}
           type="inline-positive">
-          <juju.components.SvgIcon
+          <SvgIcon
             name="close_16_white"
             size="16" />
-        </juju.components.GenericButton>
+        </GenericButton>
         <div className="machine-view__header-drop-target">
           <div className="machine-view__header-drop-message">
               Create new {'machine'}

@@ -1,22 +1,13 @@
-/*
-This file is part of the Juju GUI, which lets users view and manage Juju
-environments within a graphical interface (https://launchpad.net/juju-gui).
-Copyright (C) 2015 Canonical Ltd.
-
-This program is free software: you can redistribute it and/or modify it under
-the terms of the GNU Affero General Public License version 3, as published by
-the Free Software Foundation.
-
-This program is distributed in the hope that it will be useful, but WITHOUT
-ANY WARRANTY; without even the implied warranties of MERCHANTABILITY,
-SATISFACTORY QUALITY, or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Affero
-General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License along
-with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
+/* Copyright (C) 2017 Canonical Ltd. */
 'use strict';
+
+const classNames = require('classnames');
+const PropTypes = require('prop-types');
+const React = require('react');
+const ReactDnD = require('react-dnd');
+const shapeup = require('shapeup');
+
+const MoreMenu = require('../../more-menu/more-menu');
 
 const MachineViewMachineUnitGlobals = {};
 
@@ -92,7 +83,7 @@ class MachineViewMachineUnit extends React.Component {
           this.props.removeUnit.bind(null, unit.id)
       }];
       menu = (
-        <juju.components.MoreMenu
+        <MoreMenu
           items={menuItems} />);
       title = unit.displayName;
     }
@@ -114,7 +105,9 @@ class MachineViewMachineUnit extends React.Component {
 };
 
 MachineViewMachineUnit.propTypes = {
-  acl: PropTypes.object.isRequired,
+  acl: shapeup.shape({
+    isReadOnly: PropTypes.func.isRequired
+  }).frozen.isRequired,
   canDrag: PropTypes.bool.isRequired,
   connectDragSource: PropTypes.func.isRequired,
   isDragging: PropTypes.bool.isRequired,
@@ -124,13 +117,6 @@ MachineViewMachineUnit.propTypes = {
   unit: PropTypes.object.isRequired
 };
 
-YUI.add('machine-view-machine-unit', function() {
-  juju.components.MachineViewMachineUnit = ReactDnD.DragSource(
-    'unit', MachineViewMachineUnitGlobals.dragSource,
-    MachineViewMachineUnitGlobals.collect)(MachineViewMachineUnit);
-}, '0.1.0', {
-  requires: [
-    'machine-view-add-machine',
-    'more-menu'
-  ]
-});
+module.exports = ReactDnD.DragSource(
+  'unit', MachineViewMachineUnitGlobals.dragSource,
+  MachineViewMachineUnitGlobals.collect)(MachineViewMachineUnit);

@@ -1,6 +1,9 @@
 /* Copyright (C) 2017 Canonical Ltd. */
-
 'use strict';
+
+const classNames = require('classnames');
+const PropTypes = require('prop-types');
+const React = require('react');
 
 /** Navigation React component for use in the Profile component. */
 class ProfileNavigation extends React.Component {
@@ -51,8 +54,4 @@ ProfileNavigation.propTypes = {
   sectionsMap: PropTypes.instanceOf(Map).isRequired
 };
 
-YUI.add('profile-navigation', function() {
-  juju.components.ProfileNavigation = ProfileNavigation;
-}, '', {
-  requires: []
-});
+module.exports = ProfileNavigation;

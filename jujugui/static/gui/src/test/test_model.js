@@ -108,8 +108,7 @@ describe('test_model.js', function() {
     const cleanups = [];
     var requirements = [
       'juju-models',
-      'juju-charm-models',
-      'relation-utils'
+      'juju-charm-models'
     ];
 
     before(function(done) {
@@ -1325,28 +1324,28 @@ describe('test_model.js', function() {
         var info = machines.parseMachineName('0');
         assert.isNull(info.parentId);
         assert.isNull(info.containerType);
-        assert.strictEqual(info.number, 0);
+        assert.strictEqual(info.number, '0');
       });
 
       it('retrieves machine info parsing a machine name', function() {
         var info = machines.parseMachineName('42');
         assert.isNull(info.parentId);
         assert.isNull(info.containerType);
-        assert.strictEqual(info.number, 42);
+        assert.strictEqual(info.number, '42');
       });
 
       it('retrieves machine info parsing a container name', function() {
         var info = machines.parseMachineName('0/lxc/0');
         assert.strictEqual(info.parentId, '0');
         assert.strictEqual(info.containerType, 'lxc');
-        assert.strictEqual(info.number, 0);
+        assert.strictEqual(info.number, '0');
       });
 
       it('retrieves machine info parsing a sub-container name', function() {
         var info = machines.parseMachineName('1/lxc/0/kvm/42');
         assert.strictEqual(info.parentId, '1/lxc/0');
         assert.strictEqual(info.containerType, 'kvm');
-        assert.strictEqual(info.number, 42);
+        assert.strictEqual(info.number, '42');
       });
 
       it('stores machines data parsing machine names', function() {
@@ -1360,10 +1359,7 @@ describe('test_model.js', function() {
       });
 
       it('adds machines with the provided id', function() {
-        // XXX frankban 2014-03-04: PYJUJU DEPRECATION.
-        // This test can be safely removed once machines._modelToObject is
-        // removed.
-        [0, '42', '0/lxc/0', '1/kvm/0/lxc/42'].forEach(function(id) {
+        ['42', '0/lxc/0', '1/kvm/0/lxc/42'].forEach(function(id) {
           var machine = machines.add({id: id});
           assert.deepEqual(machine.id, id);
         });
@@ -1534,6 +1530,43 @@ describe('test_model.js', function() {
 
     });
 
+    describe('service state simplification', function() {
+      var simplifyState;
+
+      before(() => {
+        const units = new models.ServiceUnitList();
+        simplifyState = units._simplifyState;
+      });
+
+      var makeUnit = function(state, relationErrors) {
+        var unit = {agent_state: state};
+        if (relationErrors) {
+          unit.relation_errors = {myrelation: ['service']};
+        }
+        return unit;
+      };
+
+      it('translates service running states correctly', function() {
+        var unit = makeUnit('started');
+        assert.strictEqual('running', simplifyState(unit));
+      });
+
+      it('translates service error states correctly', function() {
+        var states = ['install-error', 'foo-error', '-error', 'error'];
+        states.forEach(function(state) {
+          var unit = makeUnit(state);
+          assert.strictEqual(simplifyState(unit), 'error', state);
+        });
+      });
+
+      it('translates service pending states correctly', function() {
+        var states = ['pending', 'installed', 'waiting', 'stopped'];
+        states.forEach(function(state, index) {
+          var unit = makeUnit(state);
+          assert.strictEqual(simplifyState(unit), states[index], state);
+        });
+      });
+    });
   });
 
   describe('Charm load', function() {
@@ -2516,6 +2549,61 @@ describe('test_model.js', function() {
       });
     });
 
+    describe('_numToLetter', function() {
+      it('converts numbers to letters correctly', function() {
+        // Map of numbers and output to check. This list isn't exhaustive
+        // but checks some important milestones for common issues with this
+        // technique.
+        var mapping = {
+          1: 'a',
+          2: 'b',
+          10: 'j',
+          15: 'o',
+          26: 'z',
+          27: 'aa',
+          28: 'ab',
+          52: 'az',
+          53: 'ba',
+          54: 'bb',
+          703: 'aaa',
+          748: 'abt',
+          1982: 'bxf'
+        };
+        Object.keys(mapping).forEach(function(key) {
+          assert.equal(
+            list._numToLetter(key), mapping[key],
+            key + ' did not properly convert to ' + mapping[key]);
+        });
+      });
+    });
+
+    describe('_letterToNum', function() {
+      it('converts letters to numbers correctly', function() {
+        // Map of numbers and output to check. This list isn't exhaustive
+        // but checks some important milestones for common issues with this
+        // technique.
+        var mapping = {
+          a: 1,
+          b: 2,
+          j: 10,
+          o: 15,
+          z: 26,
+          aa: 27,
+          ab: 28,
+          az: 52,
+          ba: 53,
+          bb: 54,
+          aaa: 703,
+          abt: 748,
+          bxf: 1982
+        };
+        Object.keys(mapping).forEach(function(key) {
+          assert.equal(
+            list._letterToNum(key), mapping[key],
+            key + ' did not properly convert to ' + mapping[key]);
+        });
+      });
+    });
   });
 
   describe('db.charms.addFromCharmData', function() {

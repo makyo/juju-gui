@@ -1,6 +1,14 @@
 /* Copyright (C) 2017 Canonical Ltd. */
-
 'use strict';
+
+const PropTypes = require('prop-types');
+const React = require('react');
+
+const InsetSelect = require('../../inset-select/inset-select');
+const SvgIcon = require('../../svg-icon/svg-icon');
+const GenericButton = require('../../generic-button/generic-button');
+const GenericInput = require('../../generic-input/generic-input');
+const Notification = require('../../notification/notification');
 
 /**
   This component allows users to provide their public SSH keys.
@@ -19,6 +27,7 @@ class DeploymentSSHKey extends React.Component {
     this.state = {
       addSource: 'github',
       SSHkeys: [],
+      lpUsernames: [],
       error: null,
       buttonDisabled: true
     };
@@ -33,11 +42,19 @@ class DeploymentSSHKey extends React.Component {
     if (evt.which === 13) {
       this._handleAddMoreKeys(null);
     }
-    const hasValue = (this.refs.sshKey && this.refs.sshKey.getValue()) ||
-      (this.refs.githubUsername && this.refs.githubUsername.getValue());
-    this.setState({
-      buttonDisabled: hasValue ? false : true
-    });
+    this._updateButtonState();
+  }
+
+  _updateButtonState() {
+    const hasValue = ((this.refs.sshKey && this.refs.sshKey.getValue()) ||
+      (this.refs.githubUsername && this.refs.githubUsername.getValue() ||
+      (this.refs.launchpadUsername && this.refs.launchpadUsername.getValue())))
+      !== undefined;
+    if (this.state.buttonDisabled === hasValue) {
+      this.setState({
+        buttonDisabled: !hasValue
+      });
+    }
   }
 
   /**
@@ -135,15 +152,25 @@ class DeploymentSSHKey extends React.Component {
       const manualKey = this.refs.sshKey.getValue();
       const key = this._validateAndSplitKey(manualKey);
       if (key) {
-        this.props.setSSHKeys([key]);
         let SSHkeys = this.state.SSHkeys;
         if (!this._keyExists(key)) {
           SSHkeys.push(key);
         }
+        this.props.setSSHKeys(SSHkeys);
         this.setState({SSHkeys: SSHkeys, buttonDisabled: true});
         this.refs.sshKey.setValue(null);
         this.refs.sshKey.focus();
       }
+    } else if (source === 'launchpad') {
+      let lpUsernames = this.state.lpUsernames;
+      const username = this.refs.launchpadUsername.getValue();
+      if (lpUsernames.findIndex(d => d === username) === -1) {
+        lpUsernames.push(username);
+      }
+      this.props.setLaunchpadUsernames(lpUsernames);
+      this.setState({lpUsernames: lpUsernames, buttonDisabled: true});
+      this.refs.launchpadUsername.setValue(null);
+      this.refs.launchpadUsername.focus();
     }
   }
 
@@ -152,7 +179,7 @@ class DeploymentSSHKey extends React.Component {
   */
   _handleSourceChange() {
     const source = this.refs.sshSource.getValue();
-    this.setState({addSource: source, buttonDisabled: true});
+    this.setState({addSource: source});
   }
 
   /**
@@ -172,54 +199,106 @@ class DeploymentSSHKey extends React.Component {
   }
 
   /**
+    Remove launchpad username.
+
+    @param {String} username The username.
+  */
+  _removeLPUsername(username) {
+    const newLPUsernameList = this.state.lpUsernames.filter(name => {
+      return name !== username;
+    });
+    this.setState({lpUsernames: newLPUsernameList});
+    this.props.setLaunchpadUsernames(newLPUsernameList);
+  }
+
+  /**
     Create the added keys section.
 
     @return {Object} The React list of keys.
   */
   _generateAddedKeys() {
     const SSHkeys = this.state.SSHkeys;
+    const lpUsernames = this.state.lpUsernames;
     const stringLengths = 30;
 
-    if (Object.keys(SSHkeys).length === 0) {
+    if (Object.keys(SSHkeys).length === 0 && lpUsernames.length === 0) {
       return false;
     }
 
-    let listBody = [];
-    SSHkeys.forEach((key, i) => {
-      let uniqueKey = key.id + i;
-      let body = key.body;
+    let sshKeysList = null;
+    if (SSHkeys.length) {
+      let listBody = [];
+      SSHkeys.forEach((key, i) => {
+        let uniqueKey = key.id + i;
+        let body = key.body;
 
-      if (body.length >= stringLengths * 2) {
-        const bodyStart = key.body.substring(0, stringLengths);
-        const bodyEnd = key.body.substring(key.body.length - stringLengths);
-        body = `${bodyStart}...${bodyEnd}`;
-      }
-      listBody.push(
-        <li className="deployment-flow__row twelve-col" key={uniqueKey}>
-          <div className="two-col">{key.type}</div>
-          <div className="nine-col added-keys__key-value" title={key.body}>
-            {body}
-          </div>
-          <div className="one-col last-col">
-            <span className="added-keys__key-remove right" title="Remove key"
-              role="button"
-              onClick={this._removeKey.bind(this, key.id)}>
-              <juju.components.SvgIcon
-                name="close_16" size="16" />
-            </span>
-          </div>
-        </li>
+        if (body.length >= stringLengths * 2) {
+          const bodyStart = key.body.substring(0, stringLengths);
+          const bodyEnd = key.body.substring(key.body.length - stringLengths);
+          body = `${bodyStart}...${bodyEnd}`;
+        }
+        listBody.push(
+          <li className="deployment-flow__row twelve-col" key={uniqueKey}>
+            <div className="two-col">{key.type}</div>
+            <div className="nine-col added-keys__key-value" title={key.body}>
+              {body}
+            </div>
+            <div className="one-col last-col">
+              <span className="added-keys__key-remove right" title="Remove key"
+                role="button"
+                onClick={this._removeKey.bind(this, key.id)}>
+                <SvgIcon
+                  name="close_16" size="16" />
+              </span>
+            </div>
+          </li>
+        );
+      });
+      sshKeysList = (
+        <ul className="deployment-machines__list clearfix">
+          <li className="deployment-flow__row-header twelve-col" >
+            <div className="two-col">Type</div>
+            <div className="ten-col last-col">Key</div>
+          </li>
+          {listBody}
+        </ul>
       );
-    });
+    }
+
+    let lpUsernameList = null;
+    if (lpUsernames.length) {
+      let usernameList = [];
+      lpUsernames.forEach((username) => {
+        usernameList.push(
+          <li className="deployment-flow__row twelve-col" key={'lp-' + username}>
+            <div className="eleven-col">{username}</div>
+            <div className="one-col last-col">
+              <span className="added-keys__key-remove right"
+                title="Remove username"
+                role="button"
+                onClick={this._removeLPUsername.bind(this, username)}>
+                <SvgIcon
+                  name="close_16" size="16" />
+              </span>
+            </div>
+          </li>
+        );
+      });
+      lpUsernameList = (
+        <ul className="deployment-machines__list clearfix">
+          <li className="deployment-flow__row-header twelve-col last-col">
+            Launchpad Users
+          </li>
+          {usernameList}
+        </ul>
+      );
+    }
 
     return (
-      <ul className="deployment-machines__list clearfix">
-        <li className="deployment-flow__row-header twelve-col" >
-          <div className="two-col">Type</div>
-          <div className="ten-col last-col">Key</div>
-        </li>
-        {listBody}
-      </ul>
+      <div>
+        {sshKeysList}
+        {lpUsernameList}
+      </div>
     );
   }
 
@@ -237,7 +316,7 @@ class DeploymentSSHKey extends React.Component {
     if (this.state.addSource === 'github') {
       return (
         <div className="three-col last-col no-margin-bottom">
-          <juju.components.GenericInput
+          <GenericInput
             label="GitHub username"
             key="githubUsername"
             ref="githubUsername"
@@ -249,12 +328,25 @@ class DeploymentSSHKey extends React.Component {
     } else if (this.state.addSource === 'manual') {
       return (
         <div className="seven-col no-margin-bottom">
-          <juju.components.GenericInput
+          <GenericInput
             label="Enter your SSH key (typically found at ~/.ssh/id_rsa.pub)"
             key="sshKey"
             ref="sshKey"
             multiLine={true}
             onKeyUp={this._onKeyUp.bind(this)}
+          />
+        </div>
+      );
+    } else if (this.state.addSource === 'launchpad') {
+      return (
+        <div className="three-col last-col no-margin-bottom">
+          <GenericInput
+            label="Launchpad username"
+            key="launchpadUsername"
+            ref="launchpadUsername"
+            multiLine={false}
+            onKeyUp={this._onKeyUp.bind(this)}
+            value={this.props.username}
           />
         </div>
       );
@@ -267,15 +359,15 @@ class DeploymentSSHKey extends React.Component {
     @return {Object} The React button element.
   */
   _generateAddKeyButton() {
-    const title = this.state.addSource === 'github' ? 'Add Keys' : 'Add Key';
+    const title = this.state.addSource === 'manual' ? 'Add Key' : 'Add Keys';
     const disabled = this.state.buttonDisabled;
     return (<div className="right">
-      <juju.components.GenericButton
+      <GenericButton
         action={this._handleAddMoreKeys.bind(this)}
         disabled={disabled}
         type="positive">
         {title}
-      </juju.components.GenericButton>
+      </GenericButton>
     </div>);
   }
 
@@ -293,6 +385,10 @@ class DeploymentSSHKey extends React.Component {
       {
         label: 'Manual',
         value: 'manual'
+      },
+      {
+        label: 'Launchpad',
+        value: 'launchpad'
       }
     ];
   }
@@ -305,11 +401,15 @@ class DeploymentSSHKey extends React.Component {
   _generateError() {
     if (this.state.error) {
       const content = <span><b>Error:</b> {this.state.error}</span>;
-      return (<juju.components.Notification
+      return (<Notification
         content={content}
         type="negative" />);
     }
     return false;
+  }
+
+  componentDidUpdate() {
+    this._updateButtonState();
   }
 
   render() {
@@ -341,7 +441,7 @@ class DeploymentSSHKey extends React.Component {
         {this._generateError()}
         <div className="twelve-col no-margin-bottom">
           <div className="three-col no-margin-bottom">
-            <juju.components.InsetSelect
+            <InsetSelect
               ref="sshSource"
               disabled={false}
               label="Source"
@@ -361,17 +461,9 @@ DeploymentSSHKey.propTypes = {
   addNotification: PropTypes.func.isRequired,
   cloud: PropTypes.object,
   getGithubSSHKeys: PropTypes.func.isRequired,
-  setSSHKeys: PropTypes.func.isRequired
+  setLaunchpadUsernames: PropTypes.func.isRequired,
+  setSSHKeys: PropTypes.func.isRequired,
+  username: PropTypes.string
 };
 
-YUI.add('deployment-ssh-key', function() {
-  juju.components.DeploymentSSHKey = DeploymentSSHKey;
-}, '0.1.0', {
-  requires: [
-    'inset-select',
-    'notification',
-    'generic-input',
-    'generic-button',
-    'svg-icon'
-  ]
-});
+module.exports = DeploymentSSHKey;

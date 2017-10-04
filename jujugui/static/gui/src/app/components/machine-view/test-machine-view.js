@@ -1,36 +1,38 @@
-/*
-This file is part of the Juju GUI, which lets users view and manage Juju
-environments within a graphical interface (https://launchpad.net/juju-gui).
-Copyright (C) 2015 Canonical Ltd.
-
-This program is free software: you can redistribute it and/or modify it under
-the terms of the GNU Affero General Public License version 3, as published by
-the Free Software Foundation.
-
-This program is distributed in the hope that it will be useful, but WITHOUT
-ANY WARRANTY; without even the implied warranties of MERCHANTABILITY,
-SATISFACTORY QUALITY, or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Affero
-General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License along
-with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
+/* Copyright (C) 2017 Canonical Ltd. */
 'use strict';
 
-var juju = {components: {}}; // eslint-disable-line no-unused-vars
+const React = require('react');
+const ReactDOM = require('react-dom');
+const shapeup = require('shapeup');
+
+const MachineView = require('./machine-view');
+const MachineViewAddMachine = require('./add-machine/add-machine');
+const MachineViewColumn = require('./column/column');
+const MachineViewMachine = require('./machine/machine');
+const MachineViewScaleUp = require('./scale-up/scale-up');
+const MachineViewUnplacedUnit = require('./unplaced-unit/unplaced-unit');
+const SvgIcon = require('../svg-icon/svg-icon');
+const GenericButton = require('../generic-button/generic-button');
+
+const jsTestUtils = require('../../utils/component-test-utils');
+const testUtils = require('react-dom/test-utils');
+
+function queryComponentSelector(component, selector, all) {
+  var queryFn = (all) ? 'querySelectorAll' : 'querySelector';
+  return ReactDOM.findDOMNode(component)[queryFn](selector);
+}
 
 describe('MachineView', function() {
-  let acl, machines, parseConstraints, generateMachineDetails;
-
-  beforeAll(function(done) {
-    // By loading this file it adds the component to the juju components.
-    YUI().use('machine-view', function() { done(); });
-  });
+  let acl, machines, parseConstraints, parseMachineName, generateMachineDetails;
 
   beforeEach(function() {
-    acl = {isReadOnly: sinon.stub().returns(false)};
+    acl = shapeup.deepFreeze(shapeup.addReshape({isReadOnly: () => false}));
     parseConstraints = sinon.stub();
+    parseMachineName = sinon.stub().returns({
+      parentId: null,
+      containerType: null,
+      number: 'new0'
+    });
     generateMachineDetails = sinon.stub();
     machines = {
       filterByParent: sinon.stub().returns([{
@@ -51,35 +53,44 @@ describe('MachineView', function() {
   it('can render', function() {
     const machines = {
       filterByParent: sinon.stub().returns([]),
+      getById: sinon.stub(),
       revive: sinon.stub()
     };
     const units = {
       filterByMachine: sinon.stub().returns([])
     };
-    const services = {
+    const applications = {
       size: sinon.stub().returns(0)
     };
     const placeUnit = sinon.stub();
     const renderer = jsTestUtils.shallowRender(
       // The component is wrapped to handle drag and drop, but we just want to
       // test the internal component so we access it via DecoratedComponent.
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={sinon.stub()}
         changeState={sinon.stub()}
-        createMachine={sinon.stub()}
-        destroyMachines={sinon.stub()}
-        environmentName="My Env"
+        dbAPI={{
+          addGhostAndEcsUnits: sinon.stub(),
+          applications: applications,
+          machines: machines,
+          modelName: 'My Model',
+          reshape: sinon.stub(),
+          units: units
+        }}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine=""
+        modelAPI={{
+          autoPlaceUnits: sinon.stub(),
+          createMachine: sinon.stub(),
+          destroyMachines: sinon.stub(),
+          placeUnit: placeUnit,
+          removeUnits: sinon.stub(),
+          reshape: shapeup.reshapeFunc,
+          updateMachineConstraints: sinon.stub(),
+          updateMachineSeries: sinon.stub()
+        }}
         parseConstraints={parseConstraints}
-        placeUnit={placeUnit}
-        removeUnits={sinon.stub()}
-        services={services}
-        units={units}
-        updateMachineConstraints={sinon.stub()}
-        updateMachineSeries={sinon.stub()} />, true);
+        parseMachineName={parseMachineName} />, true);
     const instance = renderer.getMountedInstance();
     const output = renderer.getRenderOutput();
     const machineMenuItems = output.props.children.props.children[1]
@@ -89,7 +100,7 @@ describe('MachineView', function() {
     const expected = (
       <div className="machine-view">
         <div className="machine-view__content">
-          <juju.components.MachineViewColumn
+          <MachineViewColumn
             acl={acl}
             droppable={false}
             title="New units"
@@ -111,8 +122,8 @@ describe('MachineView', function() {
                 </span>
               </div>
             </div>
-          </juju.components.MachineViewColumn>
-          <juju.components.MachineViewColumn
+          </MachineViewColumn>
+          <MachineViewColumn
             acl={acl}
             activeMenuItem="name"
             droppable={true}
@@ -150,7 +161,8 @@ describe('MachineView', function() {
               id: 'cpu',
               action: machineMenuItems[8].action
             }]}
-            title="My Env (0)"
+            ref="machinesColumn"
+            title="My Model (0)"
             type="machine">
             {undefined}
             <div className="machine-view__column-onboarding">
@@ -161,7 +173,7 @@ describe('MachineView', function() {
                 <li>Customise placement</li>
                 <li>Scale up your model</li>
                 <li>Manually place new units</li>
-                <li>Collocate applications</li>
+                <li>Colocate applications</li>
               </ul>
               <span className="link"
                 onClick={instance._addMachine}
@@ -170,8 +182,8 @@ describe('MachineView', function() {
                 Add machine
               </span>
             </div>
-          </juju.components.MachineViewColumn>
-          <juju.components.MachineViewColumn
+          </MachineViewColumn>
+          <MachineViewColumn
             acl={acl}
             activeMenuItem="name"
             droppable={false}
@@ -194,11 +206,12 @@ describe('MachineView', function() {
               id: 'applications',
               action: containerMenuItems[4].action
             }]}
+            ref="containersColumn"
             title="0 containers, 0 units"
             type="container">
             {undefined}
             {undefined}
-          </juju.components.MachineViewColumn>
+          </MachineViewColumn>
         </div>
       </div>);
     expect(output).toEqualJSX(expected);
@@ -208,29 +221,35 @@ describe('MachineView', function() {
     const units = {
       filterByMachine: sinon.stub().returns([])
     };
-    const services = {
+    const applications = {
       size: sinon.stub().returns(0)
     };
     const renderer = jsTestUtils.shallowRender(
       // The component is wrapped to handle drag and drop, but we just want to
       // test the internal component so we access it via DecoratedComponent.
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={sinon.stub()}
         changeState={sinon.stub()}
-        createMachine={sinon.stub()}
-        destroyMachines={sinon.stub()}
-        environmentName="My Env"
+        dbAPI={shapeup.addReshape({
+          addGhostAndEcsUnits: sinon.stub(),
+          applications: applications,
+          machines: machines,
+          modelName: 'My Model',
+          units: units
+        })}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine="new0"
+        modelAPI={shapeup.addReshape({
+          autoPlaceUnits: sinon.stub(),
+          createMachine: sinon.stub(),
+          destroyMachines: sinon.stub(),
+          placeUnit: sinon.stub(),
+          removeUnits: sinon.stub(),
+          updateMachineConstraints: sinon.stub(),
+          updateMachineSeries: sinon.stub()
+        })}
         parseConstraints={parseConstraints}
-        placeUnit={sinon.stub()}
-        removeUnits={sinon.stub()}
-        services={services}
-        units={units}
-        updateMachineConstraints={sinon.stub()}
-        updateMachineSeries={sinon.stub()} />, true);
+        parseMachineName={parseMachineName} />, true);
     const instance = renderer.getMountedInstance();
     const output = renderer.getRenderOutput();
     const expected = (
@@ -255,30 +274,36 @@ describe('MachineView', function() {
     const units = {
       filterByMachine: sinon.stub().returns([])
     };
-    const services = {
+    const applications = {
       size: sinon.stub().returns(0)
     };
     const changeState = sinon.stub();
     const renderer = jsTestUtils.shallowRender(
       // The component is wrapped to handle drag and drop, but we just want to
       // test the internal component so we access it via DecoratedComponent.
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={sinon.stub()}
         changeState={changeState}
-        createMachine={sinon.stub()}
-        destroyMachines={sinon.stub()}
-        environmentName="My Env"
+        dbAPI={shapeup.addReshape({
+          addGhostAndEcsUnits: sinon.stub(),
+          applications: applications,
+          machines: machines,
+          modelName: 'My Model',
+          units: units
+        })}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine="new0"
+        modelAPI={shapeup.addReshape({
+          autoPlaceUnits: sinon.stub(),
+          createMachine: sinon.stub(),
+          destroyMachines: sinon.stub(),
+          placeUnit: sinon.stub(),
+          removeUnits: sinon.stub(),
+          updateMachineConstraints: sinon.stub(),
+          updateMachineSeries: sinon.stub()
+        })}
         parseConstraints={parseConstraints}
-        placeUnit={sinon.stub()}
-        removeUnits={sinon.stub()}
-        services={services}
-        units={units}
-        updateMachineConstraints={sinon.stub()}
-        updateMachineSeries={sinon.stub()} />, true);
+        parseMachineName={parseMachineName} />, true);
     const output = renderer.getRenderOutput();
     output.props.children.props.children[0].props.children[1].props.children[1]
       .props.children[1].props.onClick();
@@ -290,32 +315,38 @@ describe('MachineView', function() {
     const units = {
       filterByMachine: sinon.stub().returns([])
     };
-    const services = {
+    const applications = {
       size: sinon.stub().returns(1)
     };
     const output = jsTestUtils.shallowRender(
       // The component is wrapped to handle drag and drop, but we just want to
       // test the internal component so we access it via DecoratedComponent.
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={sinon.stub()}
         changeState={sinon.stub()}
-        createMachine={sinon.stub()}
-        destroyMachines={sinon.stub()}
-        environmentName="My Env"
+        dbAPI={shapeup.addReshape({
+          addGhostAndEcsUnits: sinon.stub(),
+          applications: applications,
+          machines: machines,
+          modelName: 'My Model',
+          units: units
+        })}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine="new0"
+        modelAPI={shapeup.addReshape({
+          autoPlaceUnits: sinon.stub(),
+          createMachine: sinon.stub(),
+          destroyMachines: sinon.stub(),
+          placeUnit: sinon.stub(),
+          removeUnits: sinon.stub(),
+          updateMachineConstraints: sinon.stub(),
+          updateMachineSeries: sinon.stub()
+        })}
         parseConstraints={parseConstraints}
-        placeUnit={sinon.stub()}
-        removeUnits={sinon.stub()}
-        services={services}
-        units={units}
-        updateMachineConstraints={sinon.stub()}
-        updateMachineSeries={sinon.stub()} />);
+        parseMachineName={parseMachineName} />);
     const expected = (
       <div className="machine-view__column-onboarding">
-        <juju.components.SvgIcon name="task-done_16"
+        <SvgIcon name="task-done_16"
           size="16" />
         You have placed all of your units
       </div>);
@@ -325,42 +356,49 @@ describe('MachineView', function() {
   });
 
   it('can display a service scale up form', function() {
-    const addGhostAndEcsUnits = sinon.stub();
     const units = {
       filterByMachine: sinon.stub().returns([])
     };
-    const services = {
+    const applications = {
       size: sinon.stub().returns(1)
     };
+    const dbAPI = shapeup.addReshape({
+      addGhostAndEcsUnits: sinon.stub(),
+      applications: applications,
+      machines: machines,
+      modelName: 'My Model',
+      units: units
+    });
     const renderer = jsTestUtils.shallowRender(
       // The component is wrapped to handle drag and drop, but we just want to
       // test the internal component so we access it via DecoratedComponent.
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={addGhostAndEcsUnits}
-        autoPlaceUnits={sinon.stub()}
         changeState={sinon.stub()}
-        createMachine={sinon.stub()}
-        destroyMachines={sinon.stub()}
-        environmentName="My Env"
+        dbAPI={dbAPI}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine="new0"
+        modelAPI={shapeup.addReshape({
+          autoPlaceUnits: sinon.stub(),
+          createMachine: sinon.stub(),
+          destroyMachines: sinon.stub(),
+          placeUnit: sinon.stub(),
+          removeUnits: sinon.stub(),
+          updateMachineConstraints: sinon.stub(),
+          updateMachineSeries: sinon.stub()
+        })}
         parseConstraints={parseConstraints}
-        placeUnit={sinon.stub()}
-        removeUnits={sinon.stub()}
-        services={services}
-        units={units}
-        updateMachineConstraints={sinon.stub()}
-        updateMachineSeries={sinon.stub()} />, true);
+        parseMachineName={parseMachineName} />, true);
     const instance = renderer.getMountedInstance();
     instance._toggleScaleUp();
     const output = renderer.getRenderOutput();
+    const propTypes = MachineViewScaleUp.propTypes;
     const expected = (
-      <juju.components.MachineViewScaleUp
-        acl={acl}
-        addGhostAndEcsUnits={addGhostAndEcsUnits}
-        services={services}
-        toggleScaleUp={instance._toggleScaleUp} />);
+      <MachineViewScaleUp
+        acl={acl.reshape(propTypes.acl)}
+        dbAPI={dbAPI.reshape(propTypes.dbAPI)}
+        toggleScaleUp={instance._toggleScaleUp}
+      />);
     expect(
       output.props.children.props.children[0].props.children[0]).toEqualJSX(
       expected);
@@ -384,62 +422,74 @@ describe('MachineView', function() {
     const getStub = sinon.stub();
     getStub.withArgs('icon').returns('django.svg');
     getStub.withArgs('subordinate').returns(false);
-    const services = {
+    const applications = {
       size: sinon.stub().returns(1),
       getById: sinon.stub().returns({
         get: getStub
       })
     };
+    const dbAPI = shapeup.addReshape({
+      addGhostAndEcsUnits: sinon.stub(),
+      applications: applications,
+      machines: machines,
+      modelName: 'My Model',
+      units: units
+    });
+    const modelAPI = shapeup.addReshape({
+      autoPlaceUnits: autoPlaceUnits,
+      createMachine: createMachine,
+      destroyMachines: sinon.stub(),
+      placeUnit: placeUnit,
+      providerType: 'azure',
+      removeUnits: removeUnits,
+      updateMachineConstraints: sinon.stub(),
+      updateMachineSeries: sinon.stub()
+    });
     const renderer = jsTestUtils.shallowRender(
       // The component is wrapped to handle drag and drop, but we just want to
       // test the internal component so we access it via DecoratedComponent.
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={autoPlaceUnits}
         changeState={sinon.stub()}
-        createMachine={createMachine}
-        destroyMachines={sinon.stub()}
-        environmentName="My Env"
+        dbAPI={dbAPI}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine="new0"
+        modelAPI={modelAPI}
         parseConstraints={parseConstraints}
-        placeUnit={placeUnit}
-        providerType={'azure'}
-        removeUnits={removeUnits}
         series={['trusty', 'xenial']}
-        services={services}
-        units={units}
-        updateMachineConstraints={sinon.stub()}
-        updateMachineSeries={sinon.stub()} />, true);
+        parseMachineName={parseMachineName} />, true);
     const instance = renderer.getMountedInstance();
     const output = renderer.getRenderOutput();
+    const propTypes = (
+      MachineViewUnplacedUnit.DecoratedComponent.propTypes);
     const expected = (
       <ul className="machine-view__list">
-        <juju.components.MachineViewUnplacedUnit
-          acl={acl}
-          createMachine={createMachine}
-          icon="django.svg"
+        <MachineViewUnplacedUnit
+          acl={acl.reshape(propTypes.acl)}
+          dbAPI={dbAPI.reshape(propTypes.dbAPI)}
           key="django/0"
-          machines={machines}
-          removeUnit={instance._removeUnit}
-          placeUnit={placeUnit}
-          providerType={'azure'}
-          selectMachine={instance.selectMachine}
+          modelAPI={modelAPI.reshape(propTypes.modelAPI)}
           series={['trusty', 'xenial']}
-          unit={unitList[0]} />
-        <juju.components.MachineViewUnplacedUnit
-          acl={acl}
-          createMachine={createMachine}
-          icon="django.svg"
+          unitAPI={{
+            icon: 'django.svg',
+            removeUnit: instance._removeUnit,
+            selectMachine: instance.selectMachine,
+            unit: unitList[0]
+          }}
+        />
+        <MachineViewUnplacedUnit
+          acl={acl.reshape(propTypes.acl)}
+          dbAPI={dbAPI.reshape(propTypes.dbAPI)}
           key="django/1"
-          machines={machines}
-          placeUnit={placeUnit}
-          providerType={'azure'}
-          removeUnit={instance._removeUnit}
-          selectMachine={instance.selectMachine}
+          modelAPI={modelAPI.reshape(propTypes.modelAPI)}
           series={['trusty', 'xenial']}
-          unit={unitList[1]} />
+          unitAPI={{
+            icon: 'django.svg',
+            removeUnit: instance._removeUnit,
+            selectMachine: instance.selectMachine,
+            unit: unitList[1]
+          }}
+        />
       </ul>);
     expect(
       output.props.children.props.children[0].props.children[1]
@@ -465,50 +515,61 @@ describe('MachineView', function() {
     getStub.withArgs('icon').returns('django.svg');
     getStub.withArgs('subordinate').onFirstCall().returns(false)
       .onSecondCall().returns(true);
-    const services = {
+    const applications = {
       size: sinon.stub().returns(1),
       getById: sinon.stub().returns({
         get: getStub
       })
     };
+    const dbAPI = shapeup.addReshape({
+      addGhostAndEcsUnits: sinon.stub(),
+      applications: applications,
+      machines: machines,
+      modelName: 'My Model',
+      units: units
+    });
+    const modelAPI = shapeup.addReshape({
+      autoPlaceUnits: autoPlaceUnits,
+      createMachine: createMachine,
+      destroyMachines: sinon.stub(),
+      placeUnit: placeUnit,
+      providerType: 'azure',
+      removeUnits: removeUnits,
+      updateMachineConstraints: sinon.stub(),
+      updateMachineSeries: sinon.stub()
+    });
     const renderer = jsTestUtils.shallowRender(
       // The component is wrapped to handle drag and drop, but we just want to
       // test the internal component so we access it via DecoratedComponent.
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={autoPlaceUnits}
         changeState={sinon.stub()}
-        createMachine={createMachine}
-        destroyMachines={sinon.stub()}
-        environmentName="My Env"
+        dbAPI={dbAPI}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine="new0"
+        modelAPI={modelAPI}
         parseConstraints={parseConstraints}
-        placeUnit={placeUnit}
-        providerType={'azure'}
-        removeUnits={removeUnits}
         series={['trusty', 'xenial']}
-        services={services}
-        units={units}
-        updateMachineConstraints={sinon.stub()}
-        updateMachineSeries={sinon.stub()} />, true);
+        parseMachineName={parseMachineName} />, true);
     const instance = renderer.getMountedInstance();
     const output = renderer.getRenderOutput();
+    const propTypes = (
+      MachineViewUnplacedUnit.DecoratedComponent.propTypes);
     const expected = (
       <ul className="machine-view__list">
-        {[<juju.components.MachineViewUnplacedUnit
-          acl={acl}
-          createMachine={createMachine}
-          icon="django.svg"
+        {[<MachineViewUnplacedUnit
+          acl={acl.reshape(propTypes.acl)}
+          dbAPI={dbAPI.reshape(propTypes.dbAPI)}
           key="django/0"
-          machines={machines}
-          providerType={'azure'}
-          removeUnit={instance._removeUnit}
-          placeUnit={placeUnit}
-          selectMachine={instance.selectMachine}
+          modelAPI={modelAPI.reshape(propTypes.modelAPI)}
           series={['trusty', 'xenial']}
-          unit={unitList[0]} />]}
+          unitAPI={{
+            icon: 'django.svg',
+            removeUnit: instance._removeUnit,
+            selectMachine: instance.selectMachine,
+            unit: unitList[0]
+          }}
+        />]}
       </ul>);
     expect(
       output.props.children.props.children[0].props.children[1]
@@ -529,7 +590,7 @@ describe('MachineView', function() {
     const getStub = sinon.stub();
     getStub.withArgs('icon').returns('django.svg');
     getStub.withArgs('subordinate').returns(true);
-    const services = {
+    const applications = {
       size: sinon.stub().returns(1),
       getById: sinon.stub().returns({
         get: getStub
@@ -538,26 +599,32 @@ describe('MachineView', function() {
     const output = jsTestUtils.shallowRender(
       // The component is wrapped to handle drag and drop, but we just want to
       // test the internal component so we access it via DecoratedComponent.
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={sinon.stub()}
         changeState={sinon.stub()}
-        createMachine={sinon.stub()}
-        destroyMachines={sinon.stub()}
-        environmentName="My Env"
+        dbAPI={shapeup.addReshape({
+          addGhostAndEcsUnits: sinon.stub(),
+          applications: applications,
+          machines: machines,
+          modelName: 'My Model',
+          units: units
+        })}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine="new0"
+        modelAPI={shapeup.addReshape({
+          autoPlaceUnits: sinon.stub(),
+          createMachine: sinon.stub(),
+          destroyMachines: sinon.stub(),
+          placeUnit: sinon.stub(),
+          removeUnits: sinon.stub(),
+          updateMachineConstraints: sinon.stub(),
+          updateMachineSeries: sinon.stub()
+        })}
         parseConstraints={parseConstraints}
-        placeUnit={sinon.stub()}
-        removeUnits={sinon.stub()}
-        services={services}
-        units={units}
-        updateMachineConstraints={sinon.stub()}
-        updateMachineSeries={sinon.stub()} />);
+        parseMachineName={parseMachineName} />);
     const expected = (
       <div className="machine-view__column-onboarding">
-        <juju.components.SvgIcon name="task-done_16"
+        <SvgIcon name="task-done_16"
           size="16" />
         You have placed all of your units
       </div>);
@@ -581,30 +648,36 @@ describe('MachineView', function() {
     const getStub = sinon.stub();
     getStub.withArgs('icon').returns('django.svg');
     getStub.withArgs('subordinate').returns(false);
-    const services = {
+    const applications = {
       size: sinon.stub().returns(1),
       getById: sinon.stub().returns({
         get: getStub
       })
     };
-    const component = renderIntoDocument(
-      <juju.components.MachineView
+    const component = testUtils.renderIntoDocument(
+      <MachineView
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={autoPlaceUnits}
         changeState={sinon.stub()}
-        createMachine={sinon.stub()}
-        destroyMachines={sinon.stub()}
-        environmentName="My Env"
+        dbAPI={shapeup.addReshape({
+          addGhostAndEcsUnits: sinon.stub(),
+          applications: applications,
+          machines: machines,
+          modelName: 'My Model',
+          units: units
+        })}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine=""
+        modelAPI={shapeup.addReshape({
+          autoPlaceUnits: autoPlaceUnits,
+          createMachine: sinon.stub(),
+          destroyMachines: sinon.stub(),
+          placeUnit: sinon.stub(),
+          removeUnits: sinon.stub(),
+          updateMachineConstraints: sinon.stub(),
+          updateMachineSeries: sinon.stub()
+        })}
         parseConstraints={parseConstraints}
-        placeUnit={sinon.stub()}
-        removeUnits={sinon.stub()}
-        services={services}
-        units={units}
-        updateMachineConstraints={sinon.stub()}
-        updateMachineSeries={sinon.stub()} />);
+        parseMachineName={parseMachineName} />);
     const node = queryComponentSelector(component,
       '.machine-view__auto-place .button--inline-neutral');
     testUtils.Simulate.click(node);
@@ -612,7 +685,7 @@ describe('MachineView', function() {
   });
 
   it('can disable auto place when read only', function() {
-    acl.isReadOnly = sinon.stub().returns(true);
+    acl = shapeup.deepFreeze(shapeup.addReshape({isReadOnly: () => true}));
     const autoPlaceUnits = sinon.stub();
     const unitList = [{
       id: 'django/0',
@@ -627,37 +700,43 @@ describe('MachineView', function() {
     const getStub = sinon.stub();
     getStub.withArgs('icon').returns('django.svg');
     getStub.withArgs('subordinate').returns(false);
-    const services = {
+    const applications = {
       size: sinon.stub().returns(1),
       getById: sinon.stub().returns({
         get: getStub
       })
     };
     const output = jsTestUtils.shallowRender(
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={autoPlaceUnits}
         changeState={sinon.stub()}
-        createMachine={sinon.stub()}
-        destroyMachines={sinon.stub()}
-        environmentName="My Env"
+        dbAPI={shapeup.addReshape({
+          addGhostAndEcsUnits: sinon.stub(),
+          applications: applications,
+          machines: machines,
+          modelName: 'My Model',
+          units: units
+        })}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine="new0"
+        modelAPI={shapeup.addReshape({
+          autoPlaceUnits: autoPlaceUnits,
+          createMachine: sinon.stub(),
+          destroyMachines: sinon.stub(),
+          placeUnit: sinon.stub(),
+          removeUnits: sinon.stub(),
+          updateMachineConstraints: sinon.stub(),
+          updateMachineSeries: sinon.stub()
+        })}
         parseConstraints={parseConstraints}
-        placeUnit={sinon.stub()}
-        removeUnits={sinon.stub()}
-        services={services}
-        units={units}
-        updateMachineConstraints={sinon.stub()}
-        updateMachineSeries={sinon.stub()} />);
+        parseMachineName={parseMachineName} />);
     const expected = (
-      <juju.components.GenericButton
+      <GenericButton
         action={autoPlaceUnits}
         disabled={true}
         type="inline-neutral">
         Auto place
-      </juju.components.GenericButton>);
+      </GenericButton>);
     expect(
       output.props.children.props.children[0].props.children[1].props
         .children[0].props.children[0]).toEqualJSX(expected);
@@ -666,34 +745,41 @@ describe('MachineView', function() {
   it('can display onboarding if there are no machines', function() {
     const machines = {
       filterByParent: sinon.stub().returns([]),
+      getById: sinon.stub(),
       revive: sinon.stub()
     };
     const units = {
       filterByMachine: sinon.stub().returns([])
     };
-    const services = {
+    const applications = {
       size: sinon.stub().returns(0)
     };
     const renderer = jsTestUtils.shallowRender(
       // The component is wrapped to handle drag and drop, but we just want to
       // test the internal component so we access it via DecoratedComponent.
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={sinon.stub()}
         changeState={sinon.stub()}
-        createMachine={sinon.stub()}
-        destroyMachines={sinon.stub()}
-        environmentName="My Env"
+        dbAPI={shapeup.addReshape({
+          addGhostAndEcsUnits: sinon.stub(),
+          applications: applications,
+          machines: machines,
+          modelName: 'My Model',
+          units: units
+        })}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine=""
+        modelAPI={shapeup.addReshape({
+          autoPlaceUnits: sinon.stub(),
+          createMachine: sinon.stub(),
+          destroyMachines: sinon.stub(),
+          placeUnit: sinon.stub(),
+          removeUnits: sinon.stub(),
+          updateMachineConstraints: sinon.stub(),
+          updateMachineSeries: sinon.stub()
+        })}
         parseConstraints={parseConstraints}
-        placeUnit={sinon.stub()}
-        removeUnits={sinon.stub()}
-        services={services}
-        units={units}
-        updateMachineConstraints={sinon.stub()}
-        updateMachineSeries={sinon.stub()} />, true);
+        parseMachineName={parseMachineName} />, true);
     const instance = renderer.getMountedInstance();
     const output = renderer.getRenderOutput();
     const expected = (
@@ -705,7 +791,7 @@ describe('MachineView', function() {
           <li>Customise placement</li>
           <li>Scale up your model</li>
           <li>Manually place new units</li>
-          <li>Collocate applications</li>
+          <li>Colocate applications</li>
         </ul>
         <span className="link"
           onClick={instance._addMachine}
@@ -735,30 +821,36 @@ describe('MachineView', function() {
     const units = {
       filterByMachine: sinon.stub().returns([])
     };
-    const services = {
+    const applications = {
       size: sinon.stub().returns(0)
     };
     const destroyMachines = sinon.stub();
     const renderer = jsTestUtils.shallowRender(
       // The component is wrapped to handle drag and drop, but we just want to
       // test the internal component so we access it via DecoratedComponent.
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={sinon.stub()}
         changeState={sinon.stub()}
-        createMachine={sinon.stub()}
-        destroyMachines={destroyMachines}
-        environmentName="My Env"
+        dbAPI={shapeup.addReshape({
+          addGhostAndEcsUnits: sinon.stub(),
+          applications: applications,
+          machines: machines,
+          modelName: 'My Model',
+          units: units
+        })}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine="new0"
+        modelAPI={shapeup.addReshape({
+          autoPlaceUnits: sinon.stub(),
+          createMachine: sinon.stub(),
+          destroyMachines: destroyMachines,
+          placeUnit: sinon.stub(),
+          removeUnits: sinon.stub(),
+          updateMachineConstraints: sinon.stub(),
+          updateMachineSeries: sinon.stub()
+        })}
         parseConstraints={parseConstraints}
-        placeUnit={sinon.stub()}
-        removeUnits={sinon.stub()}
-        services={services}
-        units={units}
-        updateMachineConstraints={sinon.stub()}
-        updateMachineSeries={sinon.stub()} />, true);
+        parseMachineName={parseMachineName} />, true);
     const output = renderer.getRenderOutput();
     const expected = (
       <div className="machine-view__column-onboarding">
@@ -789,76 +881,82 @@ describe('MachineView', function() {
     const units = {
       filterByMachine: sinon.stub().returns([])
     };
-    const services = {
+    const applications = {
       size: sinon.stub().returns(0)
     };
     const destroyMachines = sinon.stub();
-    const updateMachineConstraints = sinon.stub();
-    const updateMachineSeries = sinon.stub();
+    const dbAPI = shapeup.addReshape({
+      addGhostAndEcsUnits: sinon.stub(),
+      applications: applications,
+      machines: machines,
+      modelName: 'My Model',
+      units: units
+    });
+    const modelAPI = shapeup.addReshape({
+      autoPlaceUnits: sinon.stub(),
+      createMachine: sinon.stub(),
+      destroyMachines: destroyMachines,
+      placeUnit: sinon.stub(),
+      providerType: 'aws',
+      removeUnits: sinon.stub(),
+      updateMachineConstraints: sinon.stub(),
+      updateMachineSeries: sinon.stub()
+    });
     const renderer = jsTestUtils.shallowRender(
       // The component is wrapped to handle drag and drop, but we just want to
       // test the internal component so we access it via DecoratedComponent.
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={sinon.stub()}
         changeState={sinon.stub()}
-        createMachine={sinon.stub()}
-        destroyMachines={destroyMachines}
-        environmentName="My Env"
+        dbAPI={dbAPI}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine="new0"
+        modelAPI={modelAPI}
         parseConstraints={parseConstraints}
-        placeUnit={sinon.stub()}
-        providerType="aws"
-        removeUnits={sinon.stub()}
         series={['wily']}
-        services={services}
-        units={units}
-        updateMachineConstraints={updateMachineConstraints}
-        updateMachineSeries={updateMachineSeries} />, true);
+        parseMachineName={parseMachineName} />, true);
     const instance = renderer.getMountedInstance();
     const output = renderer.getRenderOutput();
+    const propTypes = (
+      MachineViewMachine.DecoratedComponent.propTypes);
     const expected = (
       <ul className="machine-view__list">
-        <juju.components.MachineViewMachine
-          acl={acl}
-          destroyMachines={destroyMachines}
+        <MachineViewMachine
+          acl={acl.reshape(propTypes.acl)}
+          dbAPI={dbAPI.reshape(propTypes.dbAPI)}
           dropUnit={instance._dropUnit}
-          generateMachineDetails={generateMachineDetails}
           key="new0"
-          machine={machineList[0]}
-          machineModel={{get: sinon.stub()}}
+          machineAPI={{
+            generateMachineDetails: generateMachineDetails,
+            machine: machineList[0],
+            selected: true,
+            selectMachine: instance.selectMachine,
+            series: ['wily']
+          }}
+          modelAPI={modelAPI.reshape(propTypes.modelAPI)}
           parseConstraints={parseConstraints}
-          providerType="aws"
-          selected={true}
-          selectMachine={instance.selectMachine}
-          series={['wily']}
-          services={services}
+          ref="machine-new0"
           showConstraints={true}
           type="machine"
-          units={units}
-          updateMachineConstraints={updateMachineConstraints}
-          updateMachineSeries={updateMachineSeries} />
-        <juju.components.MachineViewMachine
-          acl={acl}
-          destroyMachines={destroyMachines}
+        />
+        <MachineViewMachine
+          acl={acl.reshape(propTypes.acl)}
+          dbAPI={dbAPI.reshape(propTypes.dbAPI)}
           dropUnit={instance._dropUnit}
-          generateMachineDetails={generateMachineDetails}
           key="new1"
-          machine={machineList[1]}
-          machineModel={{get: sinon.stub()}}
+          machineAPI={{
+            generateMachineDetails: generateMachineDetails,
+            machine: machineList[1],
+            selected: false,
+            selectMachine: instance.selectMachine,
+            series: ['wily']
+          }}
+          modelAPI={modelAPI.reshape(propTypes.modelAPI)}
           parseConstraints={parseConstraints}
-          providerType="aws"
-          selected={false}
-          selectMachine={instance.selectMachine}
-          series={['wily']}
-          services={services}
+          ref="machine-new1"
           showConstraints={true}
           type="machine"
-          units={units}
-          updateMachineConstraints={updateMachineConstraints}
-          updateMachineSeries={updateMachineSeries} />
+        />
       </ul>);
     expect(
       output.props.children.props.children[1].props.children[1]
@@ -884,80 +982,88 @@ describe('MachineView', function() {
     const units = {
       filterByMachine: sinon.stub().returns([])
     };
-    const services = {
+    const applications = {
       size: sinon.stub().returns(0)
     };
     const destroyMachines = sinon.stub();
     const updateMachineConstraints = sinon.stub();
     const updateMachineSeries = sinon.stub();
+    const dbAPI = shapeup.addReshape({
+      addGhostAndEcsUnits: sinon.stub(),
+      applications: applications,
+      machines: machines,
+      modelName: 'My Model',
+      units: units
+    });
+    const modelAPI = shapeup.addReshape({
+      autoPlaceUnits: sinon.stub(),
+      createMachine: sinon.stub(),
+      destroyMachines: destroyMachines,
+      placeUnit: sinon.stub(),
+      providerType: 'aws',
+      removeUnits: sinon.stub(),
+      updateMachineConstraints: updateMachineConstraints,
+      updateMachineSeries: updateMachineSeries
+    });
     const renderer = jsTestUtils.shallowRender(
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={sinon.stub()}
         changeState={sinon.stub()}
-        createMachine={sinon.stub()}
-        destroyMachines={destroyMachines}
-        environmentName="My Env"
+        dbAPI={dbAPI}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine="new0"
+        modelAPI={modelAPI}
         parseConstraints={parseConstraints}
-        placeUnit={sinon.stub()}
-        providerType="aws"
-        removeUnits={sinon.stub()}
         series={['wily']}
-        services={services}
-        units={units}
-        updateMachineConstraints={updateMachineConstraints}
-        updateMachineSeries={updateMachineSeries} />, true);
+        parseMachineName={parseMachineName} />, true);
     const instance = renderer.getMountedInstance();
     const output = renderer.getRenderOutput();
+    const propTypes = (
+      MachineViewMachine.DecoratedComponent.propTypes);
     const expected = (
       <ul className="machine-view__list">
-        <juju.components.MachineViewMachine
-          acl={acl}
-          destroyMachines={destroyMachines}
+        <MachineViewMachine
+          acl={acl.reshape(propTypes.acl)}
+          dbAPI={dbAPI.reshape(propTypes.dbAPI)}
           dropUnit={instance._dropUnit}
-          generateMachineDetails={generateMachineDetails}
           key="new0"
-          machine={{
-            displayName: 'new0',
-            id: 'new0'
+          machineAPI={{
+            generateMachineDetails: generateMachineDetails,
+            machine: {
+              displayName: 'new0',
+              id: 'new0'
+            },
+            selected: true,
+            selectMachine: instance.selectMachine,
+            series: ['wily']
           }}
-          machineModel={{get: sinon.stub()}}
+          modelAPI={modelAPI.reshape(propTypes.modelAPI)}
           parseConstraints={parseConstraints}
-          providerType="aws"
-          selected={false}
-          selectMachine={instance.selectMachine}
-          series={['wily']}
-          services={services}
+          ref="machine-new0"
           showConstraints={true}
           type="machine"
-          units={units}
-          updateMachineConstraints={updateMachineConstraints}
-          updateMachineSeries={updateMachineSeries} />
-        <juju.components.MachineViewMachine
-          acl={acl}
-          destroyMachines={destroyMachines}
+        />
+        <MachineViewMachine
+          acl={acl.reshape(propTypes.acl)}
+          dbAPI={dbAPI.reshape(propTypes.dbAPI)}
           dropUnit={instance._dropUnit}
-          generateMachineDetails={generateMachineDetails}
           key="new5"
-          machine={{
-            displayName: 'new5',
-            id: 'new5'
+          machineAPI={{
+            generateMachineDetails: generateMachineDetails,
+            machine: {
+              displayName: 'new5',
+              id: 'new5'
+            },
+            selected: false,
+            selectMachine: instance.selectMachine,
+            series: ['wily']
           }}
-          machineModel={{get: sinon.stub()}}
+          modelAPI={modelAPI.reshape(propTypes.modelAPI)}
           parseConstraints={parseConstraints}
-          providerType="aws"
-          selected={true}
-          selectMachine={instance.selectMachine}
-          series={['wily']}
-          services={services}
+          ref="machine-new5"
           showConstraints={true}
           type="machine"
-          units={units}
-          updateMachineConstraints={updateMachineConstraints}
-          updateMachineSeries={updateMachineSeries} />
+        />
       </ul>);
     expect(
       output.props.children.props.children[1].props.children[1]
@@ -983,77 +1089,85 @@ describe('MachineView', function() {
     const units = {
       filterByMachine: sinon.stub().returns([])
     };
-    const services = {
+    const applications = {
       size: sinon.stub().returns(0)
     };
     const destroyMachines = sinon.stub();
     const updateMachineConstraints = sinon.stub();
     const updateMachineSeries = sinon.stub();
+    const dbAPI = shapeup.addReshape({
+      addGhostAndEcsUnits: sinon.stub(),
+      applications: applications,
+      machines: machines,
+      modelName: 'My Model',
+      units: units
+    });
+    const modelAPI = shapeup.addReshape({
+      autoPlaceUnits: sinon.stub(),
+      createMachine: sinon.stub(),
+      destroyMachines: destroyMachines,
+      placeUnit: sinon.stub(),
+      providerType: 'aws',
+      removeUnits: sinon.stub(),
+      updateMachineConstraints: updateMachineConstraints,
+      updateMachineSeries: updateMachineSeries
+    });
     const renderer = jsTestUtils.shallowRender(
       // The component is wrapped to handle drag and drop, but we just want to
       // test the internal component so we access it via DecoratedComponent.
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={sinon.stub()}
         changeState={sinon.stub()}
-        createMachine={sinon.stub()}
-        destroyMachines={destroyMachines}
-        environmentName="My Env"
+        dbAPI={dbAPI}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine="new0"
+        modelAPI={modelAPI}
         parseConstraints={parseConstraints}
-        placeUnit={sinon.stub()}
-        providerType="aws"
-        removeUnits={sinon.stub()}
         series={['wily']}
-        services={services}
-        units={units}
-        updateMachineConstraints={updateMachineConstraints}
-        updateMachineSeries={updateMachineSeries} />, true);
+        parseMachineName={parseMachineName} />, true);
     const instance = renderer.getMountedInstance();
     instance._toggleConstraints();
     const output = renderer.getRenderOutput();
+    const propTypes = (
+      MachineViewMachine.DecoratedComponent.propTypes);
     const expected = (
       <ul className="machine-view__list">
-        <juju.components.MachineViewMachine
-          acl={acl}
-          destroyMachines={destroyMachines}
+        <MachineViewMachine
+          acl={acl.reshape(propTypes.acl)}
+          dbAPI={dbAPI.reshape(propTypes.dbAPI)}
           dropUnit={instance._dropUnit}
-          generateMachineDetails={generateMachineDetails}
           key="new0"
-          machine={machineList[0]}
-          machineModel={{get: sinon.stub()}}
+          machineAPI={{
+            generateMachineDetails: generateMachineDetails,
+            machine: machineList[0],
+            selected: true,
+            selectMachine: instance.selectMachine,
+            series: ['wily']
+          }}
+          modelAPI={modelAPI.reshape(propTypes.modelAPI)}
           parseConstraints={parseConstraints}
-          providerType="aws"
-          selected={true}
-          selectMachine={instance.selectMachine}
-          services={services}
-          series={['wily']}
+          ref="machine-new0"
           showConstraints={true}
           type="machine"
-          units={units}
-          updateMachineConstraints={updateMachineConstraints}
-          updateMachineSeries={updateMachineSeries} />
-        <juju.components.MachineViewMachine
-          acl={acl}
-          destroyMachines={destroyMachines}
+        />
+        <MachineViewMachine
+          acl={acl.reshape(propTypes.acl)}
+          dbAPI={dbAPI.reshape(propTypes.dbAPI)}
           dropUnit={instance._dropUnit}
-          generateMachineDetails={generateMachineDetails}
           key="new1"
-          machine={machineList[1]}
-          machineModel={{get: sinon.stub()}}
+          machineAPI={{
+            generateMachineDetails: generateMachineDetails,
+            machine: machineList[1],
+            selected: false,
+            selectMachine: instance.selectMachine,
+            series: ['wily']
+          }}
+          modelAPI={modelAPI.reshape(propTypes.modelAPI)}
           parseConstraints={parseConstraints}
-          providerType="aws"
-          selected={false}
-          selectMachine={instance.selectMachine}
-          series={['wily']}
-          services={services}
           showConstraints={false}
+          ref="machine-new1"
           type="machine"
-          units={units}
-          updateMachineConstraints={updateMachineConstraints}
-          updateMachineSeries={updateMachineSeries} />
+        />
       </ul>);
     expect(
       output.props.children.props.children[1].props.children[1]
@@ -1063,48 +1177,55 @@ describe('MachineView', function() {
   it('can display a form for adding a machine', function() {
     const machines = {
       filterByParent: sinon.stub().returns([]),
+      getById: sinon.stub(),
       revive: sinon.stub()
     };
     const units = {
       filterByMachine: sinon.stub().returns([])
     };
-    const services = {
+    const applications = {
       size: sinon.stub().returns(0)
     };
     const createMachine = sinon.stub();
     const placeUnit = sinon.stub();
+    const modelAPI = shapeup.addReshape({
+      autoPlaceUnits: sinon.stub(),
+      createMachine: createMachine,
+      destroyMachines: sinon.stub(),
+      placeUnit: placeUnit,
+      providerType: 'azure',
+      removeUnits: sinon.stub(),
+      updateMachineConstraints: sinon.stub(),
+      updateMachineSeries: sinon.stub()
+    });
     const renderer = jsTestUtils.shallowRender(
       // The component is wrapped to handle drag and drop, but we just want to
       // test the internal component so we access it via DecoratedComponent.
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={sinon.stub()}
         changeState={sinon.stub()}
-        createMachine={createMachine}
-        destroyMachines={sinon.stub()}
-        environmentName="My Env"
+        dbAPI={shapeup.addReshape({
+          addGhostAndEcsUnits: sinon.stub(),
+          applications: applications,
+          machines: machines,
+          modelName: 'My Model',
+          units: units
+        })}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine="new0"
+        modelAPI={modelAPI}
         parseConstraints={parseConstraints}
-        placeUnit={placeUnit}
-        providerType={'azure'}
-        removeUnits={sinon.stub()}
         series={['trusty', 'xenial']}
-        services={services}
-        units={units}
-        updateMachineConstraints={sinon.stub()}
-        updateMachineSeries={sinon.stub()} />, true);
+        parseMachineName={parseMachineName} />, true);
     const instance = renderer.getMountedInstance();
     instance._addMachine();
     const output = renderer.getRenderOutput();
+    const propTypes = MachineViewAddMachine.propTypes;
     const expected = (
-      <juju.components.MachineViewAddMachine
-        acl={acl}
+      <MachineViewAddMachine
+        acl={acl.reshape(propTypes.acl)}
         close={instance._closeAddMachine}
-        createMachine={createMachine}
-        placeUnit={placeUnit}
-        providerType={'azure'}
+        modelAPI={modelAPI.reshape(propTypes.modelAPI)}
         selectMachine={instance.selectMachine}
         series={['trusty', 'xenial']}
         unit={null} />);
@@ -1129,33 +1250,156 @@ describe('MachineView', function() {
     const units = {
       filterByMachine: sinon.stub().returns([])
     };
-    const services = {
+    const applications = {
       size: sinon.stub().returns(0)
     };
+    const changeState = sinon.stub();
     const renderer = jsTestUtils.shallowRender(
       // The component is wrapped to handle drag and drop, but we just want to
       // test the internal component so we access it via DecoratedComponent.
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={sinon.stub()}
-        changeState={sinon.stub()}
-        createMachine={sinon.stub()}
-        destroyMachines={sinon.stub()}
-        environmentName="My Env"
+        changeState={changeState}
+        dbAPI={shapeup.addReshape({
+          addGhostAndEcsUnits: sinon.stub(),
+          applications: applications,
+          machines: machines,
+          modelName: 'My Model',
+          units: units
+        })}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine=""
+        modelAPI={shapeup.addReshape({
+          autoPlaceUnits: sinon.stub(),
+          createMachine: sinon.stub(),
+          destroyMachines: sinon.stub(),
+          placeUnit: sinon.stub(),
+          removeUnits: sinon.stub(),
+          updateMachineConstraints: sinon.stub(),
+          updateMachineSeries: sinon.stub()
+        })}
         parseConstraints={parseConstraints}
-        placeUnit={sinon.stub()}
-        removeUnits={sinon.stub()}
-        services={services}
-        units={units}
-        updateMachineConstraints={sinon.stub()}
-        updateMachineSeries={sinon.stub()} />, true);
+        parseMachineName={parseMachineName} />, true);
     const instance = renderer.getMountedInstance();
-    assert.equal(instance.state.selectedMachine, 'new0');
+    const column = document.createElement('div');
+    column.innerHTML = '<div className="machine-view__column-content"></div>';
+    instance.refs = {
+      containersColumn: column,
+      machinesColumn: column
+    };
+    instance.componentDidMount();
+    assert.equal(changeState.callCount, 1);
+    assert.deepEqual(changeState.args[0][0], {gui: {machines: 'new0'}});
     instance.selectMachine('new1');
-    assert.equal(instance.state.selectedMachine, 'new1');
+    assert.equal(changeState.callCount, 2);
+    assert.deepEqual(changeState.args[1][0], {gui: {machines: 'new1'}});
+  });
+
+  it('selects the given machine on mount', function() {
+    const machineList = [{
+      displayName: 'new0',
+      id: 'new0'
+    }, {
+      displayName: 'new1',
+      id: 'new1'
+    }];
+    const machines = {
+      filterByParent: sinon.stub().returns(machineList),
+      getById: sinon.stub(),
+      revive: sinon.stub()
+    };
+    const units = {
+      filterByMachine: sinon.stub().returns([])
+    };
+    const applications = {
+      size: sinon.stub().returns(0)
+    };
+    const changeState = sinon.stub();
+    const renderer = jsTestUtils.shallowRender(
+      // The component is wrapped to handle drag and drop, but we just want to
+      // test the internal component so we access it via DecoratedComponent.
+      <MachineView.DecoratedComponent
+        acl={acl}
+        changeState={changeState}
+        dbAPI={shapeup.addReshape({
+          addGhostAndEcsUnits: sinon.stub(),
+          applications: applications,
+          machines: machines,
+          modelName: 'My Model',
+          units: units
+        })}
+        generateMachineDetails={generateMachineDetails}
+        machine="new1"
+        modelAPI={shapeup.addReshape({
+          autoPlaceUnits: sinon.stub(),
+          createMachine: sinon.stub(),
+          destroyMachines: sinon.stub(),
+          placeUnit: sinon.stub(),
+          removeUnits: sinon.stub(),
+          updateMachineConstraints: sinon.stub(),
+          updateMachineSeries: sinon.stub()
+        })}
+        parseConstraints={parseConstraints}
+        parseMachineName={parseMachineName.returns({
+          parentId: null,
+          containerType: null,
+          number: 'new1'
+        })} />, true);
+    const instance = renderer.getMountedInstance();
+    const column = document.createElement('div');
+    column.innerHTML = '<div className="machine-view__column-content"></div>';
+    instance.refs = {
+      containersColumn: column,
+      machinesColumn: column
+    };
+    instance.componentDidMount();
+    assert.equal(changeState.callCount, 1);
+    assert.deepEqual(changeState.args[0][0], {gui: {machines: 'new1'}});
+  });
+
+  it('does not select any machines on mount if there are not', function() {
+    const machineList = [];
+    const machines = {filterByParent: sinon.stub().returns(machineList)};
+    const units = {
+      filterByMachine: sinon.stub().returns([])
+    };
+    const applications = {
+      size: sinon.stub().returns(0)
+    };
+    const changeState = sinon.stub();
+    const renderer = jsTestUtils.shallowRender(
+      // The component is wrapped to handle drag and drop, but we just want to
+      // test the internal component so we access it via DecoratedComponent.
+      <MachineView.DecoratedComponent
+        acl={acl}
+        changeState={changeState}
+        dbAPI={shapeup.addReshape({
+          addGhostAndEcsUnits: sinon.stub(),
+          applications: applications,
+          machines: machines,
+          modelName: 'My Model',
+          units: units
+        })}
+        generateMachineDetails={generateMachineDetails}
+        machine=""
+        modelAPI={shapeup.addReshape({
+          autoPlaceUnits: sinon.stub(),
+          createMachine: sinon.stub(),
+          destroyMachines: sinon.stub(),
+          placeUnit: sinon.stub(),
+          removeUnits: sinon.stub(),
+          updateMachineConstraints: sinon.stub(),
+          updateMachineSeries: sinon.stub()
+        })}
+        parseConstraints={parseConstraints}
+        parseMachineName={parseMachineName.returns({
+          parentId: null,
+          containerType: null,
+          number: 'new1'
+        })} />, true);
+    const instance = renderer.getMountedInstance();
+    instance.componentDidMount();
+    assert.equal(changeState.callCount, 0);
   });
 
   it('can display a list of containers', function() {
@@ -1182,61 +1426,86 @@ describe('MachineView', function() {
     const units = {
       filterByMachine: sinon.stub().returns([])
     };
-    const services = {
+    const applications = {
       size: sinon.stub().returns(0)
     };
     const destroyMachines = sinon.stub();
     const removeUnits = sinon.stub();
+    const dbAPI = shapeup.addReshape({
+      addGhostAndEcsUnits: sinon.stub(),
+      applications: applications,
+      machines: machines,
+      modelName: 'My Model',
+      units: units
+    });
+    const modelAPI = shapeup.addReshape({
+      autoPlaceUnits: sinon.stub(),
+      createMachine: sinon.stub(),
+      destroyMachines: destroyMachines,
+      placeUnit: sinon.stub(),
+      removeUnits: removeUnits,
+      updateMachineConstraints: sinon.stub(),
+      updateMachineSeries: sinon.stub()
+    });
+
     const renderer = jsTestUtils.shallowRender(
       // The component is wrapped to handle drag and drop, but we just want to
       // test the internal component so we access it via DecoratedComponent.
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={sinon.stub()}
         changeState={sinon.stub()}
-        createMachine={sinon.stub()}
-        destroyMachines={destroyMachines}
-        environmentName="My Env"
+        dbAPI={dbAPI}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine="new0"
+        modelAPI={modelAPI}
         parseConstraints={parseConstraints}
-        placeUnit={sinon.stub()}
-        removeUnits={removeUnits}
-        services={services}
-        units={units}
-        updateMachineConstraints={sinon.stub()}
-        updateMachineSeries={sinon.stub()} />, true);
+        parseMachineName={parseMachineName} />, true);
     const instance = renderer.getMountedInstance();
     const output = renderer.getRenderOutput();
+    const propTypes = (
+      MachineViewMachine.DecoratedComponent.propTypes);
     const expected = (
       <ul className="machine-view__list">
-        <juju.components.MachineViewMachine
-          acl={acl}
-          destroyMachines={destroyMachines}
+        <MachineViewMachine
+          acl={acl.reshape(propTypes.acl)}
+          dbAPI={dbAPI.reshape(propTypes.dbAPI)}
           dropUnit={instance._dropUnit}
           key="new0"
-          machine={{
-            commitStatus: 'committed',
-            deleted: undefined,
-            displayName: 'Root container',
-            id: 'new0',
-            root: true
+          machineAPI={{
+            machine: {
+              commitStatus: 'committed',
+              deleted: undefined,
+              displayName: 'Root container',
+              id: 'new0',
+              root: true
+            },
+            removeUnit: instance._removeUnit,
+            selectMachine: sinon.stub(),
+            selected: true
           }}
-          removeUnit={instance._removeUnit}
-          services={services}
+          modelAPI={modelAPI.reshape(propTypes.modelAPI)}
+          parseConstraints={parseConstraints}
+          ref="container-new0"
           type="container"
-          units={units} />
-        <juju.components.MachineViewMachine
-          acl={acl}
-          destroyMachines={destroyMachines}
+        />
+        <MachineViewMachine
+          acl={acl.reshape(propTypes.acl)}
+          dbAPI={dbAPI.reshape(propTypes.dbAPI)}
           dropUnit={instance._dropUnit}
           key="new0/lxc/0"
-          machine={{id: 'new0/lxc/0'}}
-          removeUnit={instance._removeUnit}
-          services={services}
+          machineAPI={{
+            machine: {
+              id: 'new0/lxc/0'
+            },
+            removeUnit: instance._removeUnit,
+            selectMachine: sinon.stub(),
+            selected: false
+          }}
+          modelAPI={modelAPI.reshape(propTypes.modelAPI)}
+          parseConstraints={parseConstraints}
+          ref="container-new0/lxc/0"
           type="container"
-          units={units} />
+        />
       </ul>);
     expect(
       output.props.children.props.children[2].props.children[1]).toEqualJSX(
@@ -1271,75 +1540,106 @@ describe('MachineView', function() {
     const units = {
       filterByMachine: sinon.stub().returns([])
     };
-    const services = {
+    const applications = {
       size: sinon.stub().returns(0)
     };
     const destroyMachines = sinon.stub();
     const removeUnits = sinon.stub();
+    const dbAPI = shapeup.addReshape({
+      addGhostAndEcsUnits: sinon.stub(),
+      applications: applications,
+      machines: machines,
+      modelName: 'My Model',
+      units: units
+    });
+    const modelAPI = shapeup.addReshape({
+      autoPlaceUnits: sinon.stub(),
+      createMachine: sinon.stub(),
+      destroyMachines: destroyMachines,
+      placeUnit: sinon.stub(),
+      removeUnits: removeUnits,
+      updateMachineConstraints: sinon.stub(),
+      updateMachineSeries: sinon.stub()
+    });
     const renderer = jsTestUtils.shallowRender(
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={sinon.stub()}
         changeState={sinon.stub()}
-        createMachine={sinon.stub()}
-        destroyMachines={destroyMachines}
-        environmentName="My Env"
+        dbAPI={dbAPI}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine="new0"
+        modelAPI={modelAPI}
         parseConstraints={parseConstraints}
-        placeUnit={sinon.stub()}
-        removeUnits={removeUnits}
-        services={services}
-        units={units}
-        updateMachineConstraints={sinon.stub()}
-        updateMachineSeries={sinon.stub()} />, true);
+        parseMachineName={parseMachineName} />, true);
     const instance = renderer.getMountedInstance();
     const output = renderer.getRenderOutput();
+    const propTypes = (
+      MachineViewMachine.DecoratedComponent.propTypes);
+    const reshapedACL = acl.reshape(propTypes.acl);
+    const reshapedDBAPI = dbAPI.reshape(propTypes.dbAPI);
+    const reshapedModelAPI = modelAPI.reshape(propTypes.modelAPI);
     const expected = (
       <ul className="machine-view__list">
-        <juju.components.MachineViewMachine
-          acl={acl}
-          destroyMachines={destroyMachines}
+        <MachineViewMachine
+          acl={reshapedACL}
+          dbAPI={reshapedDBAPI}
           dropUnit={instance._dropUnit}
           key="new0"
-          machine={{
-            commitStatus: 'committed',
-            deleted: undefined,
-            displayName: 'Root container',
-            id: 'new0',
-            root: true
+          machineAPI={{
+            machine: {
+              commitStatus: 'committed',
+              deleted: undefined,
+              displayName: 'Root container',
+              id: 'new0',
+              root: true
+            },
+            removeUnit: instance._removeUnit,
+            selectMachine: sinon.stub(),
+            selected: true
           }}
-          removeUnit={instance._removeUnit}
-          services={services}
+          modelAPI={reshapedModelAPI}
+          parseConstraints={parseConstraints}
+          ref="container-new0"
           type="container"
-          units={units} />
-        <juju.components.MachineViewMachine
-          acl={acl}
-          destroyMachines={destroyMachines}
+        />
+        <MachineViewMachine
+          acl={reshapedACL}
+          dbAPI={reshapedDBAPI}
           dropUnit={instance._dropUnit}
           key="new0/lxc/0"
-          machine={{
-            displayName: 'new0/lxc/0',
-            id: 'new0/lxc/0'
+          machineAPI={{
+            machine: {
+              displayName: 'new0/lxc/0',
+              id: 'new0/lxc/0'
+            },
+            removeUnit: instance._removeUnit,
+            selectMachine: sinon.stub(),
+            selected: false
           }}
-          removeUnit={instance._removeUnit}
-          services={services}
+          modelAPI={reshapedModelAPI}
+          parseConstraints={parseConstraints}
+          ref="container-new0/lxc/0"
           type="container"
-          units={units} />
-        <juju.components.MachineViewMachine
-          acl={acl}
-          destroyMachines={destroyMachines}
+        />
+        <MachineViewMachine
+          acl={reshapedACL}
+          dbAPI={reshapedDBAPI}
           dropUnit={instance._dropUnit}
           key="new0/lxc/5"
-          machine={{
-            displayName: 'new0/lxc/5',
-            id: 'new0/lxc/5'
+          machineAPI={{
+            machine: {
+              displayName: 'new0/lxc/5',
+              id: 'new0/lxc/5'
+            },
+            removeUnit: instance._removeUnit,
+            selectMachine: sinon.stub(),
+            selected: false
           }}
-          removeUnit={instance._removeUnit}
-          services={services}
+          modelAPI={reshapedModelAPI}
+          parseConstraints={parseConstraints}
+          ref="container-new0/lxc/5"
           type="container"
-          units={units} />
+        />
       </ul>);
     expect(
       output.props.children.props.children[2].props.children[1]).toEqualJSX(
@@ -1363,48 +1663,55 @@ describe('MachineView', function() {
     const units = {
       filterByMachine: sinon.stub().returns([])
     };
-    const services = {
+    const applications = {
       size: sinon.stub().returns(0)
     };
     const createMachine = sinon.stub();
     const destroyMachines = sinon.stub();
     const placeUnit = sinon.stub();
     const removeUnits = sinon.stub();
+    const modelAPI = shapeup.addReshape({
+      autoPlaceUnits: sinon.stub(),
+      createMachine: createMachine,
+      destroyMachines: destroyMachines,
+      placeUnit: placeUnit,
+      providerType: 'gce',
+      removeUnits: removeUnits,
+      updateMachineConstraints: sinon.stub(),
+      updateMachineSeries: sinon.stub()
+    });
     const renderer = jsTestUtils.shallowRender(
       // The component is wrapped to handle drag and drop, but we just want to
       // test the internal component so we access it via DecoratedComponent.
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={sinon.stub()}
         changeState={sinon.stub()}
-        createMachine={createMachine}
-        destroyMachines={destroyMachines}
-        environmentName="My Env"
+        dbAPI={shapeup.addReshape({
+          addGhostAndEcsUnits: sinon.stub(),
+          applications: applications,
+          machines: machines,
+          modelName: 'My Model',
+          units: units
+        })}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine="new0"
+        modelAPI={modelAPI}
         parseConstraints={parseConstraints}
-        placeUnit={placeUnit}
-        providerType={'gce'}
-        removeUnits={removeUnits}
         series={['trusty', 'xenial']}
-        services={services}
-        units={units}
-        updateMachineConstraints={sinon.stub()}
-        updateMachineSeries={sinon.stub()} />, true);
+        parseMachineName={parseMachineName} />, true);
     const instance = renderer.getMountedInstance();
     instance._addContainer();
     const output = renderer.getRenderOutput();
+    const propTypes = MachineViewAddMachine.propTypes;
     const expected = (
-      <juju.components.MachineViewAddMachine
-        acl={acl}
+      <MachineViewAddMachine
+        acl={acl.reshape(propTypes.acl)}
         close={instance._closeAddContainer}
-        createMachine={createMachine}
+        modelAPI={modelAPI.reshape(propTypes.modelAPI)}
         parentId="new0"
-        placeUnit={placeUnit}
-        providerType={'gce'}
         series={['trusty', 'xenial']}
-        unit={null} />);
+        unit={null}
+      />);
     expect(
       output.props.children.props.children[2].props.children[0]).toEqualJSX(
       expected);
@@ -1428,63 +1735,85 @@ describe('MachineView', function() {
     const units = {
       filterByMachine: sinon.stub().returns([])
     };
-    const services = {
+    const applications = {
       size: sinon.stub().returns(0)
     };
     const createMachine = sinon.stub();
     const destroyMachines = sinon.stub();
     const removeUnits = sinon.stub();
+    const dbAPI = shapeup.addReshape({
+      addGhostAndEcsUnits: sinon.stub(),
+      applications: applications,
+      machines: machines,
+      modelName: 'My Model',
+      units: units
+    });
+    const modelAPI = shapeup.addReshape({
+      autoPlaceUnits: sinon.stub(),
+      createMachine: createMachine,
+      destroyMachines: destroyMachines,
+      placeUnit: sinon.stub(),
+      removeUnits: removeUnits,
+      updateMachineConstraints: sinon.stub(),
+      updateMachineSeries: sinon.stub()
+    });
     const renderer = jsTestUtils.shallowRender(
       // The component is wrapped to handle drag and drop, but we just want to
       // test the internal component so we access it via DecoratedComponent.
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={sinon.stub()}
         changeState={sinon.stub()}
-        createMachine={createMachine}
-        destroyMachines={destroyMachines}
-        environmentName="My Env"
+        dbAPI={dbAPI}
         generateMachineDetails={generateMachineDetails}
-        units={units}
+        machine="new0"
+        modelAPI={modelAPI}
         parseConstraints={parseConstraints}
-        placeUnit={sinon.stub()}
-        removeUnits={removeUnits}
-        services={services}
-        machines={machines}
-        updateMachineConstraints={sinon.stub()}
-        updateMachineSeries={sinon.stub()} />, true);
+        parseMachineName={parseMachineName} />, true);
     const instance = renderer.getMountedInstance();
     instance._addContainer();
     const output = renderer.getRenderOutput();
+    const propTypes = (
+      MachineViewMachine.DecoratedComponent.propTypes);
     const expected = (
       <ul className="machine-view__list">
-        <juju.components.MachineViewMachine
-          acl={acl}
-          destroyMachines={destroyMachines}
+        <MachineViewMachine
+          acl={acl.reshape(propTypes.acl)}
+          dbAPI={dbAPI.reshape(propTypes.dbAPI)}
           dropUnit={instance._dropUnit}
           key="new0"
-          machine={{
-            commitStatus: 'committed',
-            deleted: true,
-            displayName: 'Root container',
-            id: 'new0',
-            root: true
+          machineAPI={{
+            machine: {
+              commitStatus: 'committed',
+              deleted: true,
+              displayName: 'Root container',
+              id: 'new0',
+              root: true
+            },
+            removeUnit: instance._removeUnit,
+            selectMachine: sinon.stub(),
+            selected: true
           }}
-          removeUnit={instance._removeUnit}
-          services={services}
+          modelAPI={modelAPI.reshape(propTypes.modelAPI)}
+          parseConstraints={parseConstraints}
+          ref="container-new0"
           type="container"
-          units={units} />
-        <juju.components.MachineViewMachine
-          acl={acl}
-          destroyMachines={destroyMachines}
+        />
+        <MachineViewMachine
+          acl={acl.reshape(propTypes.acl)}
+          dbAPI={dbAPI.reshape(propTypes.dbAPI)}
           dropUnit={instance._dropUnit}
           key="new0/lxc/0"
-          machine={{id: 'new0/lxc/0'}}
-          removeUnit={instance._removeUnit}
-          services={services}
+          machineAPI={{
+            machine: {id: 'new0/lxc/0'},
+            removeUnit: instance._removeUnit,
+            selectMachine: sinon.stub(),
+            selected: false
+          }}
+          modelAPI={modelAPI.reshape(propTypes.modelAPI)}
+          parseConstraints={parseConstraints}
+          ref="container-new0/lxc/0"
           type="container"
-          units={units} />
+        />
       </ul>);
     expect(
       output.props.children.props.children[2].props.children[1]).toEqualJSX(
@@ -1505,7 +1834,7 @@ describe('MachineView', function() {
     const units = {
       filterByMachine: sinon.stub().returns([])
     };
-    const services = {
+    const applications = {
       size: sinon.stub().returns(0)
     };
     const createMachine = sinon.stub();
@@ -1514,23 +1843,29 @@ describe('MachineView', function() {
     const renderer = jsTestUtils.shallowRender(
       // The component is wrapped to handle drag and drop, but we just want to
       // test the internal component so we access it via DecoratedComponent.
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={sinon.stub()}
         changeState={sinon.stub()}
-        createMachine={createMachine}
-        destroyMachines={destroyMachines}
-        environmentName="My Env"
+        dbAPI={shapeup.addReshape({
+          addGhostAndEcsUnits: sinon.stub(),
+          applications: applications,
+          machines: machines,
+          modelName: 'My Model',
+          units: units
+        })}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine="new0"
+        modelAPI={shapeup.addReshape({
+          autoPlaceUnits: sinon.stub(),
+          createMachine: createMachine,
+          destroyMachines: destroyMachines,
+          placeUnit: sinon.stub(),
+          removeUnits: removeUnits,
+          updateMachineConstraints: sinon.stub(),
+          updateMachineSeries: sinon.stub()
+        })}
         parseConstraints={parseConstraints}
-        placeUnit={sinon.stub()}
-        removeUnits={removeUnits}
-        services={services}
-        units={units}
-        updateMachineConstraints={sinon.stub()}
-        updateMachineSeries={sinon.stub()} />, true);
+        parseMachineName={parseMachineName} />, true);
     const instance = renderer.getMountedInstance();
     instance._removeUnit('wordpress/8');
     assert.equal(removeUnits.callCount, 1);
@@ -1551,7 +1886,7 @@ describe('MachineView', function() {
     const units = {
       filterByMachine: sinon.stub().returns([])
     };
-    const services = {
+    const applications = {
       size: sinon.stub().returns(0)
     };
     const createMachine = sinon.stub();
@@ -1561,23 +1896,29 @@ describe('MachineView', function() {
     const renderer = jsTestUtils.shallowRender(
       // The component is wrapped to handle drag and drop, but we just want to
       // test the internal component so we access it via DecoratedComponent.
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={sinon.stub()}
         changeState={sinon.stub()}
-        createMachine={createMachine}
-        destroyMachines={destroyMachines}
-        environmentName="My Env"
+        dbAPI={shapeup.addReshape({
+          addGhostAndEcsUnits: sinon.stub(),
+          applications: applications,
+          machines: machines,
+          modelName: 'My Model',
+          units: units
+        })}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine="new0"
+        modelAPI={shapeup.addReshape({
+          autoPlaceUnits: sinon.stub(),
+          createMachine: createMachine,
+          destroyMachines: destroyMachines,
+          placeUnit: placeUnit,
+          removeUnits: removeUnits,
+          updateMachineConstraints: sinon.stub(),
+          updateMachineSeries: sinon.stub()
+        })}
         parseConstraints={parseConstraints}
-        placeUnit={placeUnit}
-        removeUnits={removeUnits}
-        services={services}
-        units={units}
-        updateMachineConstraints={sinon.stub()}
-        updateMachineSeries={sinon.stub()} />, true);
+        parseMachineName={parseMachineName} />, true);
     const instance = renderer.getMountedInstance();
     instance._dropUnit('wordpress/8', 'new0');
     assert.equal(placeUnit.callCount, 1);
@@ -1586,38 +1927,45 @@ describe('MachineView', function() {
   });
 
   it('can disable menu actions when read only', function() {
-    acl.isReadOnly = sinon.stub().returns(true);
+    acl = shapeup.deepFreeze(shapeup.addReshape({isReadOnly: () => true}));
     const machines = {
       filterByParent: sinon.stub().returns([]),
+      getById: sinon.stub(),
       revive: sinon.stub()
     };
     const units = {
       filterByMachine: sinon.stub().returns([])
     };
-    const services = {
+    const applications = {
       size: sinon.stub().returns(0)
     };
     const placeUnit = sinon.stub();
     const renderer = jsTestUtils.shallowRender(
       // The component is wrapped to handle drag and drop, but we just want to
       // test the internal component so we access it via DecoratedComponent.
-      <juju.components.MachineView.DecoratedComponent
+      <MachineView.DecoratedComponent
         acl={acl}
-        addGhostAndEcsUnits={sinon.stub()}
-        autoPlaceUnits={sinon.stub()}
         changeState={sinon.stub()}
-        createMachine={sinon.stub()}
-        destroyMachines={sinon.stub()}
-        environmentName="My Env"
+        dbAPI={shapeup.addReshape({
+          addGhostAndEcsUnits: sinon.stub(),
+          applications: applications,
+          machines: machines,
+          modelName: 'My Model',
+          units: units
+        })}
         generateMachineDetails={generateMachineDetails}
-        machines={machines}
+        machine="new0"
+        modelAPI={shapeup.addReshape({
+          autoPlaceUnits: sinon.stub(),
+          createMachine: sinon.stub(),
+          destroyMachines: sinon.stub(),
+          placeUnit: placeUnit,
+          removeUnits: sinon.stub(),
+          updateMachineConstraints: sinon.stub(),
+          updateMachineSeries: sinon.stub()
+        })}
         parseConstraints={parseConstraints}
-        placeUnit={placeUnit}
-        removeUnits={sinon.stub()}
-        services={services}
-        units={units}
-        updateMachineConstraints={sinon.stub()}
-        updateMachineSeries={sinon.stub()} />, true);
+        parseMachineName={parseMachineName} />, true);
     const output = renderer.getRenderOutput();
     const machineMenuItems = output.props.children.props.children[1]
       .props.menuItems;

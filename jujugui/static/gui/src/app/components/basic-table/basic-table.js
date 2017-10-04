@@ -1,6 +1,9 @@
 /* Copyright (C) 2017 Canonical Ltd. */
-
 'use strict';
+
+const classNames = require('classnames');
+const PropTypes = require('prop-types');
+const React = require('react');
 
 /** Basic table React component used to display data in a table structure. */
 class BasicTable extends React.Component {
@@ -20,6 +23,33 @@ class BasicTable extends React.Component {
       'eleven-col',
       'twelve-col'
     ];
+  }
+
+  /**
+    Show the entity details when clicked.
+
+    @method _handleRowClick
+    @param state {String} The new state to update to.
+    @param evt {Object} The click event.
+  */
+  _handleRowClick(state, evt) {
+    evt.preventDefault();
+    this.props.changeState(state);
+  }
+
+  /**
+    Generate a row anchor.
+    @param clickState {Function} The method to call when the row is clicked.
+    @returns {Object} The anchor element or null.
+  */
+  _generateAnchor(clickState) {
+    if (!clickState) {
+      return null;
+    }
+    return (
+      <a className="basic-table__row-link"
+        href={this.props.generatePath(clickState)}
+        onClick={this._handleRowClick.bind(this, clickState)}></a>);
   }
 
   /**
@@ -45,15 +75,27 @@ class BasicTable extends React.Component {
           conditionalClasses[className] = true;
         });
       }
-      const classes = classNames(conditionalClasses);
+      const classes = classNames(
+        conditionalClasses,
+        isHeader ? this.props.headerColumnClasses :
+          this.props.rowColumnClasses);
+      let content = column.content;
+      // if there is no content then add a space so that the column doesn't
+      // collapse.
+      if ((typeof(content) === 'string' && content.replace(/\s/g,'') === '') ||
+        content === undefined || content === null) {
+        content = (<span>&nbsp;</span>);
+      }
       return (
         <div className={classes}
           key={i}>
-          {column.content}
+          {content}
         </div>);
     });
     const classes = classNames(
       'twelve-col',
+      isHeader ? this.props.headerClasses : this.props.rowClasses,
+      row.classes,
       {
         'basic-table__header': isHeader,
         'basic-table__row': !isHeader
@@ -61,6 +103,7 @@ class BasicTable extends React.Component {
     return (
       <li className={classes}
         key={isHeader ? 'basic-table-header' : row.key}>
+        {this._generateAnchor(row.clickState)}
         {columns}
       </li>);
   }
@@ -71,17 +114,22 @@ class BasicTable extends React.Component {
   */
   _generateContent() {
     let rows = this.props.rows;
+    if (this.props.filterPredicate) {
+      rows = rows.filter(this.props.filterPredicate);
+    }
     if (this.props.sort) {
       rows.sort(this.props.sort);
     }
-    return rows.map(row => {
-      return this._generateRow(false, row);
-    });
+    return rows.map(row => this._generateRow(false, row));
   }
 
   render() {
+    const classes = classNames(
+      'basic-table',
+      'twelve-col',
+      this.props.tableClasses);
     return (
-      <ul className="basic-table twelve-col">
+      <ul className={classes}>
         {this._generateRow(true, this.props.headers)}
         {this._generateContent()}
       </ul>
@@ -90,32 +138,47 @@ class BasicTable extends React.Component {
 };
 
 BasicTable.propTypes = {
+  changeState: PropTypes.func,
+  // The filterPredicate function receives a row and must return a boolean.
+  filterPredicate: PropTypes.func,
+  generatePath: PropTypes.func,
+  // The extra classes to apply to all header rows.
+  headerClasses: PropTypes.array,
+  // The extra classes to apply to all header columns.
+  headerColumnClasses: PropTypes.array,
   headers: PropTypes.arrayOf(PropTypes.shape({
-    content: PropTypes.node.isRequired,
+    content: PropTypes.node,
     // The number of columns (between 1 and 12).
     columnSize: PropTypes.number.isRequired,
     // The extra classes to apply to the column.
     classes: PropTypes.arrayOf(PropTypes.string)
   }).isRequired).isRequired,
+  // The extra classes to apply to all non-header rows.
+  rowClasses: PropTypes.array,
+  // The extra classes to apply to all non-header columns.
+  rowColumnClasses: PropTypes.array,
   rows: PropTypes.arrayOf(PropTypes.shape({
+    // The extra classes to apply to an individual row.
+    classes: PropTypes.array,
+    // The new state to update to when a row is clicked.
+    clickState: PropTypes.object,
     columns: PropTypes.arrayOf(PropTypes.shape({
-      content: PropTypes.node.isRequired,
+      content: PropTypes.node,
       // The number of columns (between 1 and 12).
       columnSize: PropTypes.number.isRequired,
       // The extra classes to apply to the column.
       classes: PropTypes.arrayOf(PropTypes.string)
     }).isRequired).isRequired,
+    // Extra data that can be used when ordering, sorting etc.
+    extraData: PropTypes.any,
     // The row key, used for React indexing and sorting.
     key: PropTypes.string.isRequired
   }).isRequired).isRequired,
   // A method to sort the rows by. The row object is provided to the sort
   // method.
-  sort: PropTypes.func
+  sort: PropTypes.func,
+  // The extra classes to apply to the main table node.
+  tableClasses: PropTypes.array
 };
 
-YUI.add('basic-table', function() {
-  juju.components.BasicTable = BasicTable;
-}, '', {
-  requires: [
-  ]
-});
+module.exports = BasicTable;

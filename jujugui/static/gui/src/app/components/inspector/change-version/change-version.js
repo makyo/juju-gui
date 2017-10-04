@@ -1,22 +1,11 @@
-/*
-This file is part of the Juju GUI, which lets users view and manage Juju
-environments within a graphical interface (https://launchpad.net/juju-gui).
-Copyright (C) 2015 Canonical Ltd.
-
-This program is free software: you can redistribute it and/or modify it under
-the terms of the GNU Affero General Public License version 3, as published by
-the Free Software Foundation.
-
-This program is distributed in the hope that it will be useful, but WITHOUT
-ANY WARRANTY; without even the implied warranties of MERCHANTABILITY,
-SATISFACTORY QUALITY, or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Affero
-General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License along
-with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
+/* Copyright (C) 2017 Canonical Ltd. */
 'use strict';
+
+const PropTypes = require('prop-types');
+const React = require('react');
+
+const Spinner = require('../../spinner/spinner');
+const InspectorChangeVersionItem = require('./item/item');
 
 class InspectorChangeVersion extends React.Component {
   constructor() {
@@ -156,9 +145,10 @@ class InspectorChangeVersion extends React.Component {
     }
     let components = [];
     if (!versions || versions.length === 1) {
-      components = <li className="inspector-change-version__none">
-            No other versions found.
-      </li>;
+      components = (
+        <li className="inspector-change-version__none">
+          No other versions found.
+        </li>);
     } else {
       const url = window.jujulib.URL.fromLegacyString(this.props.charmId);
       versions.forEach(function(version) {
@@ -170,7 +160,7 @@ class InspectorChangeVersion extends React.Component {
           downgrade = true;
         }
         components.push(
-          <juju.components.InspectorChangeVersionItem
+          <InspectorChangeVersionItem
             acl={this.props.acl}
             key={version}
             downgrade={downgrade}
@@ -193,7 +183,7 @@ class InspectorChangeVersion extends React.Component {
     if (loading) {
       return(
         <div className="inspector-spinner">
-          <juju.components.Spinner />
+          <Spinner />
         </div>
       );
     } else {
@@ -236,9 +226,4 @@ InspectorChangeVersion.propTypes = {
   setCharm: PropTypes.func.isRequired
 };
 
-YUI.add('inspector-change-version', function() {
-  juju.components.InspectorChangeVersion = InspectorChangeVersion;
-}, '0.1.0', { requires: [
-  'inspector-change-version-item',
-  'loading-spinner'
-]});
+module.exports = InspectorChangeVersion;

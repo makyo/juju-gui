@@ -1,6 +1,13 @@
 /* Copyright (C) 2017 Canonical Ltd. */
-
 'use strict';
+
+const PropTypes = require('prop-types');
+const React = require('react');
+
+const ButtonDropdown = require('../../button-dropdown/button-dropdown');
+const CreateModelButton = require('../../create-model-button/create-model-button');
+const DateDisplay = require('../../date-display/date-display');
+const Popup = require('../../popup/popup');
 
 /**
   Model list React component used to display a list of the users models in
@@ -11,7 +18,8 @@ class ProfileModelList extends React.Component {
     super();
     this.state = {
       loadingModels: false,
-      models: null
+      models: null,
+      notification: null
     };
   }
 
@@ -78,6 +86,59 @@ class ProfileModelList extends React.Component {
   }
 
   /**
+    Shows the confirmation modal for destroying a model.
+    @param {Object} model The model data.
+  */
+  _showConfirmation(model) {
+    const buttons = [{
+      title: 'Cancel',
+      action: () => this.setState({notification: null}),
+      type: 'inline-neutral'
+    }, {
+      title: 'Destroy',
+      action: () => {
+        this.setState({notification: null});
+        this.props.destroyModels([model.uuid], () => {
+          this._fetchModels(this.props.facadesExist);
+        });
+      },
+      type: 'destructive'
+    }];
+    const message = `Are you sure you want to destroy ${model.name}?`
+      + ' All the applications and units included in the model will be'
+      + ' destroyed. This action cannot be undone.';
+    this.setState({
+      notification: (
+        <Popup
+          buttons={buttons}
+          title="Destroy model">
+          <p>{message}</p>
+        </Popup>)
+    });
+  }
+
+  /**
+    Calls to destroy the supplied model.
+    @param {Object} model The model object.
+    @param {String} bdRef The ref index of the button dropdown component.
+    @param {Object} e The click event.
+  */
+  _destroyModel(model, bdRef, e) {
+    e.preventDefault();
+    e.stopPropagation();
+    this.refs[bdRef]._toggleDropdown();
+    if (model.isController) {
+      this.props.addNotification({
+        title: 'Cannot destroy model',
+        message: 'The controller model cannot be destroyed.',
+        level: 'error'
+      });
+      return;
+    }
+    this._showConfirmation(model);
+  }
+
+  /**
     Generates the list of models that are owned by the active user.
     @return {Object} The model list as JSX.
   */
@@ -92,20 +153,40 @@ class ProfileModelList extends React.Component {
     if (!modelList || modelList.length === 0) {
       return [this._generateHeader(headerLabel, 0, true), tableHeader];
     }
-    const rowData = modelList.reduce((models, model) => {
+    const rowData = modelList.reduce((models, model, index) => {
       // Keep only the models that aren't currently in the destroy cycle.
       if (!model.isAlive) {
         return;
       }
+      const bdRef = `mymodel-button-dropdown-${index}`;
       models.push({
         id: model.id,
         name: model.name,
         provider: `${model.numMachines} ${model.provider.toUpperCase()}/${model.region.toUpperCase()}`, // eslint-disable-line max-len
         lastConnection: model.lastConnection,
-        action: '-'
+        action: (
+          <ButtonDropdown
+            ref={bdRef}
+            listItems={[
+              <li
+                className="dropdown-menu__list-item" role="menuitem" tabIndex="0"
+                key="delete">
+                <a
+                  className="dropdown-menu__list-item-link"
+                  onClick={this._destroyModel.bind(this, model, bdRef)}>
+                  Delete
+                </a>
+              </li>
+            ]}
+            tooltip="more"
+            icon="contextual-menu-16" />)
       });
       return models;
     }, []);
+    if (!rowData || !rowData.length) {
+      // We have no models
+      return null;
+    }
     const rows = this._generateRows(
       rowData, ['name', 'provider', 'lastConnection', 'action']);
     return (
@@ -177,7 +258,7 @@ class ProfileModelList extends React.Component {
           {`${label} (${modelCount})`}
         </span>
         {showCreate ?
-          <juju.components.CreateModelButton
+          <CreateModelButton
             title="Start a new model"
             changeState={props.changeState}
             switchModel={props.switchModel} /> : null}
@@ -219,17 +300,18 @@ class ProfileModelList extends React.Component {
     function processData(data, label) {
       switch(label) {
         case 'lastConnection':
-          return <juju.components.DateDisplay date={data[label] || '--'} relative={true} />;
+          return <DateDisplay date={data[label] || '--'} relative={true} />;
           break;
         case 'name':
           const owner = data.owner || this.props.userInfo.profile;
           const name = data.name;
           const path = `${this.props.baseURL}u/${owner}/${name}`;
-          return <a href={path} onClick={this.switchToModel.bind(this, {
-            name,
-            id: data.id,
-            owner
-          })} >{data.name}</a>;
+          return (
+            <a href={path} onClick={this.switchToModel.bind(this, {
+              name,
+              id: data.id,
+              owner
+            })} >{data.name}</a>);
           break;
         default:
           return data[label];
@@ -237,11 +319,18 @@ class ProfileModelList extends React.Component {
     }
 
     return (
-      rows.map((rowData, idx) =>
+      rows.map((rowData, idx) => (
         <li className="profile-model-list__row" key={idx}>
           {columns.map(label =>
             <span key={`${label}-${idx}`}>{processData.call(this, rowData, label)}</span>)}
-        </li>));
+        </li>)));
+  }
+
+  _generateNotification() {
+    if (!this.state.notification) {
+      return;
+    }
+    return this.state.notification;
   }
 
   render() {
@@ -249,6 +338,7 @@ class ProfileModelList extends React.Component {
       <div className="profile-model-list">
         {this._generateMyModels()}
         {this._generateSharedModels()}
+        {this._generateNotification()}
       </div>);
   }
 
@@ -275,11 +365,4 @@ ProfileModelList.propTypes = {
   userInfo: PropTypes.object.isRequired
 };
 
-YUI.add('profile-model-list', function() {
-  juju.components.ProfileModelList = ProfileModelList;
-}, '', {
-  requires: [
-    'create-model-button',
-    'date-display'
-  ]
-});
+module.exports = ProfileModelList;

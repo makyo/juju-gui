@@ -1,22 +1,14 @@
-/*
-This file is part of the Juju GUI, which lets users view and manage Juju
-environments within a graphical interface (https://launchpad.net/juju-gui).
-Copyright (C) 2015 Canonical Ltd.
-
-This program is free software: you can redistribute it and/or modify it under
-the terms of the GNU Affero General Public License version 3, as published by
-the Free Software Foundation.
-
-This program is distributed in the hope that it will be useful, but WITHOUT
-ANY WARRANTY; without even the implied warranties of MERCHANTABILITY,
-SATISFACTORY QUALITY, or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Affero
-General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License along
-with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
+/* Copyright (C) 2017 Canonical Ltd. */
 'use strict';
+
+const classNames = require('classnames');
+const PropTypes = require('prop-types');
+const React = require('react');
+const ReactDnD = require('react-dnd');
+const shapeup = require('shapeup');
+
+const MoreMenu = require('../../more-menu/more-menu');
+const MachineViewAddMachine = require('../add-machine/add-machine');
 
 const MachineViewUnplacedUnitGlobals = {};
 
@@ -29,7 +21,7 @@ MachineViewUnplacedUnitGlobals.dragSource = {
     @param {Object} props The component props.
   */
   beginDrag: function(props) {
-    return {unit: props.unit};
+    return {unit: props.unitAPI.unit};
   },
 
   /**
@@ -83,17 +75,16 @@ class MachineViewUnplacedUnit extends React.Component {
       return;
     }
     const props = this.props;
+    const propTypes = MachineViewAddMachine.propTypes;
     return (
-      <juju.components.MachineViewAddMachine
-        acl={props.acl}
+      <MachineViewAddMachine
+        acl={props.acl.reshape(propTypes.acl)}
         close={this._togglePlaceUnit.bind(this)}
-        createMachine={props.createMachine}
-        machines={props.machines}
-        placeUnit={props.placeUnit}
-        providerType={props.providerType}
-        selectMachine={props.selectMachine}
+        dbAPI={props.dbAPI.reshape(propTypes.dbAPI)}
+        modelAPI={props.modelAPI.reshape(propTypes.modelAPI)}
+        selectMachine={props.unitAPI.selectMachine}
         series={props.series}
-        unit={props.unit}
+        unit={props.unitAPI.unit}
       />
     );
   }
@@ -112,22 +103,24 @@ class MachineViewUnplacedUnit extends React.Component {
   }
 
   render() {
-    var isReadOnly = this.props.acl.isReadOnly();
-    var unit = this.props.unit;
-    var menuItems = [{
+    const props = this.props;
+    const isReadOnly = props.acl.isReadOnly();
+    const unitAPI = props.unitAPI;
+    const unit = unitAPI.unit;
+    const menuItems = [{
       label: 'Deploy to...',
       action: !isReadOnly && this._togglePlaceUnit.bind(this)
     }, {
       label: 'Destroy',
-      action: !isReadOnly && this.props.removeUnit.bind(null, unit.id)
+      action: !isReadOnly && unitAPI.removeUnit.bind(null, unit.id)
     }];
     // Wrap the returned components in the drag source method.
-    return this.props.connectDragSource(
+    return props.connectDragSource(
       <li className={this._generateClasses()}>
-        <img src={this.props.icon} alt={unit.displayName}
+        <img src={unitAPI.icon} alt={unit.displayName}
           className="machine-view__unplaced-unit-icon" />
         {unit.displayName}
-        <juju.components.MoreMenu
+        <MoreMenu
           items={menuItems} />
         {this._generatePlaceUnit()}
         <div className="machine-view__unplaced-unit-drag-state"></div>
@@ -137,27 +130,29 @@ class MachineViewUnplacedUnit extends React.Component {
 };
 
 MachineViewUnplacedUnit.propTypes = {
-  acl: PropTypes.object.isRequired,
+  acl: shapeup.shape({
+    isReadOnly: PropTypes.func.isRequired,
+    reshape: shapeup.reshapeFunc
+  }).frozen.isRequired,
   connectDragSource: PropTypes.func.isRequired,
-  createMachine: PropTypes.func.isRequired,
-  icon: PropTypes.string.isRequired,
+  dbAPI: shapeup.shape({
+    machines: PropTypes.object.isRequired
+  }),
   isDragging: PropTypes.bool.isRequired,
-  machines: PropTypes.object.isRequired,
-  placeUnit: PropTypes.func.isRequired,
-  providerType: PropTypes.string,
-  removeUnit: PropTypes.func.isRequired,
-  selectMachine: PropTypes.func.isRequired,
+  modelAPI: shapeup.shape({
+    createMachine: PropTypes.func.isRequired,
+    placeUnit: PropTypes.func.isRequired,
+    providerType: PropTypes.string
+  }).isRequired,
   series: PropTypes.array,
-  unit: PropTypes.object.isRequired
+  unitAPI: shapeup.shape({
+    icon: PropTypes.string.isRequired,
+    removeUnit: PropTypes.func.isRequired,
+    selectMachine: PropTypes.func.isRequired,
+    unit: PropTypes.object.isRequired
+  }).isRequired
 };
 
-YUI.add('machine-view-unplaced-unit', function() {
-  juju.components.MachineViewUnplacedUnit = ReactDnD.DragSource(
-    'unit', MachineViewUnplacedUnitGlobals.dragSource,
-    MachineViewUnplacedUnitGlobals.collect)(MachineViewUnplacedUnit);
-}, '0.1.0', {
-  requires: [
-    'machine-view-add-machine',
-    'more-menu'
-  ]
-});
+module.exports = ReactDnD.DragSource(
+  'unit', MachineViewUnplacedUnitGlobals.dragSource,
+  MachineViewUnplacedUnitGlobals.collect)(MachineViewUnplacedUnit);

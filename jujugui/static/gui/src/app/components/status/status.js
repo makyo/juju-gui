@@ -1,26 +1,158 @@
 /* Copyright (C) 2017 Canonical Ltd. */
-
 'use strict';
+
+const PropTypes = require('prop-types');
+const React = require('react');
+
+const shapeup = require('shapeup');
+
+const BasicTable = require('../basic-table/basic-table');
+const Panel = require('../panel/panel');
 
 /** Status React component used to display Juju status. */
 class Status extends React.Component {
+  constructor(props) {
+    super(props);
+    this.STATUS_ERROR = 'error';
+    this.STATUS_PENDING = 'pending';
+    this.STATUS_OK = 'ok';
+    this.STATUS_ORDER = [
+      this.STATUS_ERROR,
+      this.STATUS_PENDING,
+      this.STATUS_OK
+    ];
+    // This property is used to store the new highest status during a render or
+    // state change and the value is then stored in state in componentDidUpdate.
+    this.newHighest = null;
+    this.state = {
+      highestStatus: this.STATUS_OK,
+      statusFilter: null
+    };
+  }
+
+  /**
+    TODO: componentDidMount and componentDidUnmount should be removed
+    when the status beta is over, it adds a class to overwrite the 'beta'
+    pseudo element.
+  */
+  componentWillMount() {
+    document.body.classList.add('u-is-status');
+  }
+  componentWillUnmount() {
+    document.body.classList.remove('u-is-status');
+  }
+
+  componentWillReceiveProps() {
+    // Reset to the lowest status so that when the apps, units etc. are looped
+    // through the highest status can be stored.
+    this.setState({highestStatus: this.STATUS_OK});
+  }
+
+  componentDidUpdate() {
+    // Update the state with the new status now that all status changes/renders
+    // are complete.
+    if (this.newHighest && (this.state.highestStatus !== this.newHighest)) {
+      this.setState({highestStatus: this.newHighest});
+      this.newHighest = null;
+    }
+  }
+
+  /**
+    Set the highest status if the passed status is higher than the current.
+    @param status {String} A status.
+  */
+  _setHighestStatus(status) {
+    const normalised = this._normaliseStatus(status);
+    if (this.STATUS_ORDER.indexOf(normalised) <
+      this.STATUS_ORDER.indexOf(this.state.highestStatus)) {
+      // Store the new state instead of updating state directly as this change
+      // may have been triggered by a state update or render and you can't
+      // update state during a state update or render.
+      this.newHighest = normalised;
+    }
+  }
+
+  /**
+    Get the highest status from a list of statuses.
+    @param statuses {Ȧrray} A list of statuses.
+    @returns {String} The status.
+  */
+  _getHighestStatus(statuses) {
+    const normalised = statuses.map(status => this._normaliseStatus(status));
+    let status;
+    // Loop through the order of priority until there is a matching status.
+    this.STATUS_ORDER.some(val => {
+      if (normalised.indexOf(val) > -1) {
+        status = val;
+        return true;
+      }
+    });
+    return status;
+  }
+
   /**
     Return an element class name suitable for the given value.
+    @param {String} prefix The class prefix.
     @param {String} value The provided value.
     @returns {String} The class name ('ok', 'error' or '').
   */
-  _getClass(value) {
-    switch (value) {
+  _getStatusClass(prefix, value) {
+    if (!value) {
+      // If there is no value then ignore it. This might be the case when an
+      // entity's state property only has a value for pending/error states.
+      return '';
+    }
+    if (!Array.isArray(value)) {
+      value = [value];
+    }
+    const normalised = value.map(val => this._normaliseStatus(val));
+    return prefix + this._getHighestStatus(normalised);
+  }
+
+  /**
+    Normalise the status value.
+    @param status {String} The raw value.
+    @returns {String} The normalised status ('ok', 'error' or 'pending').
+  */
+  _normaliseStatus(value) {
+    let status = this.STATUS_OK;
+    switch(value) {
       case 'active':
       case 'idle':
       case 'started':
-        return 'ok';
+      case 'waiting':
+        status = this.STATUS_OK;
+        break;
       case 'blocked':
       case 'down':
       case 'error':
-        return 'error';
+        status = this.STATUS_ERROR;
+        break;
+      case 'pending':
+      case 'installing':
+      case 'executing':
+      case 'allocating':
+      case 'maintenance':
+        status = this.STATUS_PENDING;
+        break;
     }
-    return '';
+    return status;
+  }
+
+  /**
+    Generate a status for display.
+    @param status {String} The status to display.
+    @returns {Object} The status markup.
+  */
+  _generateStatusDisplay(status) {
+    // If the status provided from a model property it might have no value.
+    if (!status) {
+      return null;
+    }
+    return (
+      <span className={this._getStatusClass('status-view__status--', status)}>
+        {status}
+      </span>);
   }
 
   /**
@@ -38,74 +170,297 @@ class Status extends React.Component {
   }
 
   /**
+    Filter a row by the status.
+    @param row {Object} The row values.
+    @returns {Boolean} Whether the row matches the status.
+  */
+  _filterByStatus(row) {
+    if (!this.state.statusFilter) {
+      return true;
+    }
+    return row.extraData === this.state.statusFilter;
+  }
+
+  /**
     Generate the current model status.
     @returns {Object} The resulting element.
   */
   _generateStatus() {
     const elements = [];
     const db = this.props.db;
+    const applications = db.services.filter(app => !app.get('pending'));
+    const machines = db.machines.filter(mach => mach.id.indexOf('new') !== 0);
+    const relations = db.relations.filter(rel => !rel.get('pending'));
+    const counts = {
+      applications: applications.length,
+      machines: machines.length,
+      relations: relations.length,
+      remoteApplications: db.remoteServices && db.remoteServices.size() || 0,
+      units: db.units && db.units.size() || 0
+    };
+    // Model section.
     const model = this.props.model;
     if (!model.environmentName) {
       // No need to go further: we are not connected to a model.
       return 'Cannot show the status: the GUI is not connected to a model.';
     }
-    elements.push(this._generateModel(model));
-    if (db.remoteServices.size()) {
+    elements.push(this._generateModel(model, counts));
+    // SAAS section.
+    if (counts.remoteApplications) {
       elements.push(this._generateRemoteApplications(db.remoteServices));
     }
-    if (db.services.size()) {
+    // Applications and units sections.
+    if (counts.applications) {
       elements.push(
-        this._generateApplications(db.services),
-        this._generateUnits(db.services)
+        this._generateApplications(applications),
+        this._generateUnits(applications)
       );
     }
-    if (db.machines.size()) {
-      elements.push(this._generateMachines(db.machines));
+    // Machines section.
+    if (counts.machines) {
+      elements.push(this._generateMachines(machines));
     }
-    if (db.relations.size()) {
-      elements.push(this._generateRelations(db.relations));
+    // Relations section.
+    if (counts.relations) {
+      elements.push(this._generateRelations(relations));
     }
     return elements;
   }
 
   /**
+    Handle filter changes and store the new status in state.
+    @param evt {Object} The change event
+  */
+  _handleFilterChange(evt) {
+    let filter = evt.currentTarget.value;
+    if (filter === 'none') {
+      filter = null;
+    }
+    this._changeFilterStatus(filter);
+  }
+
+  /**
+    Set the filter status.
+    @param status {String} A status.
+  */
+  _changeFilterStatus(status) {
+    this.setState({statusFilter: status});
+  }
+
+  /**
+    Generate the filter select box.
+    @returns {Object} The select box element to render.
+  */
+  _generateFilters() {
+    const options = ['none'].concat(this.STATUS_ORDER).map(status => {
+      return (
+        <option className="status-view__filter-option"
+          key={status}
+          value={status}>
+          {status}
+        </option>);
+    });
+    return (
+      <select className="status-view__filter-select"
+        onChange={this._handleFilterChange.bind(this)}
+        value={this.state.statusFilter || 'none'}>
+        {options}
+      </select>);
+  }
+
+  /**
     Generate the model fragment of the status.
     @param {Object} model The model attributes.
+    @param {Object} counts The counts of applications, units, machines etc.
     @returns {Object} The resulting element.
   */
-  _generateModel(model) {
+  _generateModel(model, counts) {
+    const highestStatus = this.state.highestStatus;
+    let title = 'Everything is OK';
+    switch (highestStatus) {
+      case this.STATUS_OK:
+        title = 'Everything is OK';
+        break;
+      case this.STATUS_PENDING:
+        title = 'Items are pending';
+        break;
+      case this.STATUS_ERROR:
+        title = 'Items are in error';
+        break;
+    }
     return (
-      <juju.components.BasicTable
-        headers={[{
-          content: 'Model',
-          columnSize: 3
-        }, {
-          content: 'Cloud/Region',
-          columnSize: 3
-        }, {
-          content: 'Version',
-          columnSize: 3
-        }, {
-          content: 'SLA',
-          columnSize: 3
-        }]}
-        key="model"
-        rows={[{
-          columns: [{
-            columnSize: 3,
-            content: model.environmentName
+      <div key="model">
+        <div className="twelve-col no-margin-bottom">
+          <div className="eight-col">
+            <h2>
+              {model.environmentName}
+              <span
+                className={'status-view__traffic-light ' +
+                  `status-view__traffic-light--${highestStatus}`}
+                onClick={this._changeFilterStatus.bind(this, highestStatus)}
+                role="button"
+                title={title}
+                tabIndex="0">
+              </span>
+            </h2>
+          </div>
+          <div className="status-view__filter-label two-col">
+            Filter status:
+          </div>
+          <div className="status-view__filter two-col last-col">
+            {this._generateFilters()}
+          </div>
+        </div>
+        <BasicTable
+          headers={[{
+            content: 'Cloud/Region',
+            columnSize: 2
           }, {
-            columnSize: 3,
-            content: `${model.cloud}/${model.region}`
+            content: 'Version',
+            columnSize: 2
           }, {
-            columnSize: 3,
-            content: model.version
+            content: 'SLA',
+            columnSize: 1
           }, {
-            columnSize: 3,
-            content: model.sla
-          }],
-          key: 'model'
-        }]} />);
+            content: 'Applications',
+            columnSize: 2
+          }, {
+            content: 'Remote applications',
+            columnSize: 2
+          }, {
+            content: 'Units',
+            columnSize: 1
+          }, {
+            content: 'Machines',
+            columnSize: 1
+          }, {
+            content: 'Relations',
+            columnSize: 1
+          }]}
+          rows={[{
+            columns: [{
+              columnSize: 2,
+              content: `${model.cloud}/${model.region}`
+            }, {
+              columnSize: 2,
+              content: model.version
+            }, {
+              columnSize: 1,
+              content: model.sla
+            }, {
+              columnSize: 2,
+              content: counts.applications
+            }, {
+              columnSize: 2,
+              content: counts.remoteApplications
+            }, {
+              columnSize: 1,
+              content: counts.units
+            }, {
+              columnSize: 1,
+              content: counts.machines
+            }, {
+              columnSize: 1,
+              content: counts.relations
+            }],
+            key: 'model'
+          }]} />
+      </div>);
+  }
+
+  /**
+    Generate the state to navigate to an application.
+    @param appId {String} The id of the application to display.
+  */
+  _generateApplicationClickState(appId) {
+    // Navigate to the app in the inspector, clearing the state so that the
+    // app overview is shown.
+    return {
+      gui: {
+        inspector: {
+          id: appId,
+          activeComponent: undefined,
+          unit: null,
+          unitStatus: null
+        }
+      }
+    };
+  }
+
+  /**
+    Navigate to the chosen application.
+    @param appId {String} The id of the application to display.
+    @param evt {Object} The click event.
+  */
+  _navigateToApplication(appId, evt) {
+    evt.preventDefault();
+    // Navigate to the app in the inspector, clearing the state so that the
+    // app overview is shown.
+    this.props.changeState(this._generateApplicationClickState(appId));
+  }
+
+  /**
+    Generate the state to navigate to a charm.
+    @param charmURL {String} The id of the charm to display.
+  */
+  _generateCharmClickState(charmURL) {
+    return {store: charmURL};
+  }
+
+  /**
+    Navigate to the chosen charm.
+    @param charmURL {String} The id of the charm to display.
+    @param evt {Object} The click event.
+  */
+  _navigateToCharm(charmURL, evt) {
+    evt.preventDefault();
+    this.props.changeState(this._generateCharmClickState(charmURL));
+  }
+
+  /**
+    Generate the state to navigate to a unit.
+    @param unitName {String} The name of the unit to display in the format
+      'app-id/unit-number'.
+  */
+  _generateUnitClickState(unitName) {
+    const unitParts = unitName.split('/');
+    return {
+      gui: {
+        inspector: {
+          id: unitParts[0],
+          unit: unitParts[1],
+          activeComponent: 'unit'
+        }
+      }
+    };
+  }
+
+  /**
+    Navigate to the chosen machine.
+    @param machineId {String} The id of the machine to display.
+    @param evt {Object} The click event.
+  */
+  _navigateToMachine(machineId, evt) {
+    // Because the changeState below results in this component being removed
+    // from the document there is a React error for some reason if this event
+    // propogates.
+    evt.stopPropagation();
+    evt.preventDefault();
+    this.props.changeState(this._generateMachineClickState(machineId));
+  }
+
+  /**
+    Generate the state to navigate to a machine.
+    @param machineId {String} The id of the machine to display.
+    @returns {Object} The machine state.
+  */
+  _generateMachineClickState(machineId) {
+    return {
+      gui: {
+        machines: machineId,
+        status: null
+      }
+    };
   }
 
   /**
@@ -132,11 +487,15 @@ class Status extends React.Component {
           columnSize: 3,
           content: urlParts[1]
         }],
+        extraData: this._normaliseStatus(app.status.current),
         key: app.url
       };
     });
     return (
-      <juju.components.BasicTable
+      <BasicTable
+        filterPredicate={this._filterByStatus.bind(this)}
+        headerClasses={['status-view__table-header']}
+        headerColumnClasses={['status-view__table-header-column']}
         headers={[{
           content: 'SAAS',
           columnSize: 3
@@ -151,45 +510,73 @@ class Status extends React.Component {
           columnSize: 3
         }]}
         key="remote-applications"
+        rowClasses={['status-view__table-row']}
+        rowColumnClasses={['status-view__table-column']}
         rows={rows}
-        sort={this._byKey} />);
+        sort={this._byKey}
+        tableClasses={['status-view__table']} />);
+  }
+
+  /**
+    A predicate function that can be used to filter units so that uncommitted
+    and unplaced units are excluded.
+    @param {Object} unit A unit as included in the database.
+    @returns {Boolean} Whether the unit is real or not.
+  */
+  _realUnitsPredicate(unit) {
+    // Unplaced units have no machine defined. Subordinate units have an empty
+    // string machine.
+    return unit.machine !== undefined && unit.machine.indexOf('new') !== 0;
   }
 
   /**
     Generate the applications fragment of the status.
-    @param {Object} applications The applications as included in the GUI db.
+    @param {Array} applications The applications as included in the GUI db.
     @returns {Object} The resulting element.
   */
   _generateApplications(applications) {
     const urllib = this.props.urllib;
-    const rows = applications.map((application, i) => {
+    const rows = applications.map(application => {
       const app = application.getAttrs();
       const charm = urllib.fromLegacyString(app.charm);
       const store = charm.schema === 'cs' ? 'jujucharms' : 'local';
       const revision = charm.revision;
+      const charmId = charm.path();
+      const units = app.units.filter(this._realUnitsPredicate);
       // Set the revision to null so that it's not included when calling
       // charm.path() below.
       charm.revision = null;
+      this._setHighestStatus(app.status.current);
       return {
+        classes: [this._getStatusClass(
+          'status-view__table-row--', app.status.current)],
+        clickState: this._generateApplicationClickState(app.id),
         columns:[{
           columnSize: 2,
-          content: app.name
+          content: (
+            <span>
+              <img className="status-view__icon"
+                src={app.icon} />
+              {app.name}
+            </span>)
         }, {
           columnSize: 2,
           content: app.workloadVersion
         }, {
           columnSize: 2,
-          content: (
-            <span className={this._getClass(app.status.current)}
-              key={'status' + i}>
-              {app.status.current}
-            </span>)
+          content: this._generateStatusDisplay(app.status.current)
         }, {
           columnSize: 1,
-          content: app.units.size()
+          content: units.length
         }, {
           columnSize: 2,
-          content: charm.path()
+          content: (
+            <a className="status-view__link"
+              href={this.props.generatePath(
+                this._generateCharmClickState(charmId))}
+              onClick={this._navigateToCharm.bind(this, charmId)}>
+              {charm.path()}
+            </a>)
         }, {
           columnSize: 2,
           content: store
@@ -197,11 +584,17 @@ class Status extends React.Component {
           columnSize: 1,
           content: revision
         }],
+        extraData: this._normaliseStatus(app.status.current),
         key: app.name
       };
     });
     return (
-      <juju.components.BasicTable
+      <BasicTable
+        changeState={this.props.changeState}
+        filterPredicate={this._filterByStatus.bind(this)}
+        generatePath={this.props.generatePath}
+        headerClasses={['status-view__table-header']}
+        headerColumnClasses={['status-view__table-header-column']}
         headers={[{
           content: 'Application',
           columnSize: 2
@@ -225,13 +618,16 @@ class Status extends React.Component {
           columnSize: 1
         }]}
         key="applications"
+        rowClasses={['status-view__table-row']}
+        rowColumnClasses={['status-view__table-column']}
         rows={rows}
-        sort={this._byKey} />);
+        sort={this._byKey}
+        tableClasses={['status-view__table']} />);
   }
 
   /**
     Generate the units fragment of the status.
-    @param {Object} applications The applications as included in the GUI db.
+    @param {Array} applications The applications as included in the GUI db.
     @returns {Object} The resulting element.
   */
   _generateUnits(applications) {
@@ -247,32 +643,57 @@ class Status extends React.Component {
       }).join(', ');
     };
     const rows = [];
-    applications.each(application => {
-      application.get('units').each((unit, i) => {
+    applications.forEach(application => {
+      const appExposed = application.get('exposed');
+      const units = application.get('units').filter(this._realUnitsPredicate);
+      units.forEach(unit => {
+        this._setHighestStatus(this._getHighestStatus(
+          [unit.agentStatus, unit.workloadStatus]));
+        let publicAddress = unit.public_address;
+        if (appExposed) {
+          const portRanges = unit.portRanges;
+          const port = portRanges[0].from;
+          const label = `${unit.public_address}:${port}`;
+          const protocol = port === 443 ? 'https' : 'http';
+          const href = `${protocol}://${label}`;
+          publicAddress = (
+            <a className="status-view__link"
+              href={href}
+              target="_blank">
+              {unit.public_address}
+            </a>);
+        }
         rows.push({
+          classes: [this._getStatusClass(
+            'status-view__table-row--',
+            [unit.agentStatus, unit.workloadStatus])],
+          clickState: this._generateUnitClickState(unit.id),
           columns: [{
             columnSize: 2,
-            content: unit.displayName
-          }, {
-            columnSize: 2,
             content: (
-              <span className={this._getClass(unit.workloadStatus)}
-                key={'workload' + i}>
-                {unit.workloadStatus}
+              <span>
+                <img className="status-view__icon"
+                  src={application.get('icon')} />
+                {unit.displayName}
               </span>)
           }, {
             columnSize: 2,
-            content: (
-              <span className={this._getClass(unit.agentStatus)}
-                key={'agent' + i}>
-                {unit.agentStatus}
-              </span>)
+            content: this._generateStatusDisplay(unit.workloadStatus)
+          }, {
+            columnSize: 2,
+            content: this._generateStatusDisplay(unit.agentStatus)
           }, {
             columnSize: 1,
-            content: unit.machine
+            content: (
+              <a className="status-view__link"
+                href={this.props.generatePath(
+                  this._generateMachineClickState(unit.machine))}
+                onClick={this._navigateToMachine.bind(this, unit.machine)}>
+                {unit.machine}
+              </a>)
           }, {
             columnSize: 2,
-            content: unit.public_address
+            content: publicAddress
           }, {
             columnSize: 1,
             content: formatPorts(unit.portRanges)
@@ -280,6 +701,8 @@ class Status extends React.Component {
             columnSize: 2,
             content: unit.workloadStatusMessage
           }],
+          extraData: this._getHighestStatus(
+            [unit.agentStatus, unit.workloadStatus]),
           key: unit.id
         });
       });
@@ -288,7 +711,12 @@ class Status extends React.Component {
       return null;
     }
     return (
-      <juju.components.BasicTable
+      <BasicTable
+        changeState={this.props.changeState}
+        filterPredicate={this._filterByStatus.bind(this)}
+        generatePath={this.props.generatePath}
+        headerClasses={['status-view__table-header']}
+        headerColumnClasses={['status-view__table-header-column']}
         headers={[{
           content: 'Unit',
           columnSize: 2
@@ -312,49 +740,58 @@ class Status extends React.Component {
           columnSize: 2
         }]}
         key="units"
+        rowClasses={['status-view__table-row']}
+        rowColumnClasses={['status-view__table-column']}
         rows={rows.sort(this._byKey.bind(this, 0))}
-        sort={this._byKey} />);
+        sort={this._byKey}
+        tableClasses={['status-view__table']} />);
   }
 
   /**
     Generate the machines fragment of the status.
-    @param {Object} machines The machines as included in the GUI db.
+    @param {Array} machines The machines as included in the GUI db.
     @returns {Object} The resulting element.
   */
   _generateMachines(machines) {
-    const rows = machines.map((machine, i) => {
+    const rows = machines.map(machine => {
+      this._setHighestStatus(machine.agent_state);
       return {
+        classes: [this._getStatusClass(
+          'status-view__table-row--', machine.agent_state)],
+        clickState: this._generateMachineClickState(machine.id),
         columns: [{
-          columnSize: 2,
+          columnSize: 1,
           content: machine.displayName
         }, {
           columnSize: 2,
-          content: (
-            <span className={this._getClass(machine.agent_state)}
-              key={'agent' + i}>
-              {machine.agent_state}
-            </span>)
+          content: this._generateStatusDisplay(machine.agent_state)
         }, {
           columnSize: 2,
           content: machine.public_address
         }, {
-          columnSize: 2,
+          columnSize: 3,
           content: machine.instance_id
         }, {
-          columnSize: 2,
+          columnSize: 1,
           content: machine.series
         }, {
-          columnSize: 2,
+          columnSize: 3,
           content: machine.agent_state_info
         }],
+        extraData: this._normaliseStatus(machine.agent_state),
         key: machine.id
       };
     });
     return (
-      <juju.components.BasicTable
+      <BasicTable
+        changeState={this.props.changeState}
+        filterPredicate={this._filterByStatus.bind(this)}
+        generatePath={this.props.generatePath}
+        headerClasses={['status-view__table-header']}
+        headerColumnClasses={['status-view__table-header-column']}
         headers={[{
           content: 'Machine',
-          columnSize: 2
+          columnSize: 1
         }, {
           content: 'State',
           columnSize: 2
@@ -363,17 +800,43 @@ class Status extends React.Component {
           columnSize: 2
         }, {
           content: 'Instance ID',
-          columnSize: 2
+          columnSize: 3
         }, {
           content: 'Series',
-          columnSize: 2
+          columnSize: 1
         }, {
           content: 'Message',
-          columnSize: 2
+          columnSize: 3
         }]}
         key="machines"
+        rowClasses={['status-view__table-row']}
+        rowColumnClasses={['status-view__table-column']}
         rows={rows.sort(this._byKey.bind(this, 0))}
-        sort={this._byKey} />);
+        sort={this._byKey}
+        tableClasses={['status-view__table']} />);
+  }
+
+  /**
+    Generate a link to an application from a relation.
+    @param name {String} An app name.
+    @returns {Object} The link element.
+  */
+  _generateRelationAppLink(name) {
+    const app = this.props.db.services.getById(name);
+    if (!app) {
+      // If the application is not in the DB it must be remote app so don't
+      // link to it.
+      return (<span>{name}</span>);
+    }
+    return (
+      <a className="status-view__link"
+        href={this.props.generatePath(
+          this._generateApplicationClickState(name))}
+        onClick={this._navigateToApplication.bind(this, name)}>
+        <img className="status-view__icon"
+          src={app.get('icon')} />
+        {name}
+      </a>);
   }
 
   /**
@@ -414,10 +877,10 @@ class Status extends React.Component {
           content: name
         }, {
           columnSize: 3,
-          content: provides
+          content: this._generateRelationAppLink(provides)
         }, {
           columnSize: 3,
-          content: consumes
+          content: this._generateRelationAppLink(consumes)
         }, {
           columnSize: 3,
           content: scope
@@ -426,7 +889,10 @@ class Status extends React.Component {
       };
     });
     return (
-      <juju.components.BasicTable
+      <BasicTable
+        filterPredicate={this._filterByStatus.bind(this)}
+        headerClasses={['status-view__table-header']}
+        headerColumnClasses={['status-view__table-header-column']}
         headers={[{
           content: 'Relation',
           columnSize: 3
@@ -441,43 +907,45 @@ class Status extends React.Component {
           columnSize: 3
         }]}
         key="relations"
+        rowClasses={['status-view__table-row']}
+        rowColumnClasses={['status-view__table-column']}
         rows={rows.sort(this._byKey.bind(this, 0))}
-        sort={this._byKey} />);
+        sort={this._byKey}
+        tableClasses={['status-view__table']} />);
   }
 
   render() {
     return (
-      <juju.components.Panel
+      <Panel
         instanceName="status-view"
         visible={true}>
         <div className="status-view__content">
           {this._generateStatus()}
         </div>
-      </juju.components.Panel>
+      </Panel>
     );
   }
 };
 
 Status.propTypes = {
+  changeState: PropTypes.func.isRequired,
   db: shapeup.shape({
     machines: shapeup.shape({
-      map: PropTypes.func.isRequired,
-      size: PropTypes.func.isRequired
+      filter: PropTypes.func.isRequired
     }).isRequired,
     relations: shapeup.shape({
-      map: PropTypes.func.isRequired,
-      size: PropTypes.func.isRequired
+      filter: PropTypes.func.isRequired
     }).isRequired,
     remoteServices: shapeup.shape({
       map: PropTypes.func.isRequired,
       size: PropTypes.func.isRequired
     }).isRequired,
     services: shapeup.shape({
-      each: PropTypes.func.isRequired,
-      map: PropTypes.func.isRequired,
-      size: PropTypes.func.isRequired
+      filter: PropTypes.func.isRequired,
+      getById: PropTypes.func.isRequired
     }).isRequired
   }).frozen.isRequired,
+  generatePath: PropTypes.func.isRequired,
   model: shapeup.shape({
     cloud: PropTypes.string,
     environmentName: PropTypes.string,
@@ -490,11 +958,4 @@ Status.propTypes = {
   }).frozen.isRequired
 };
 
-YUI.add('status', function() {
-  juju.components.Status = Status;
-}, '', {
-  requires: [
-    'basic-table',
-    'panel-component'
-  ]
-});
+module.exports = Status;

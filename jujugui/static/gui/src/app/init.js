@@ -1,33 +1,32 @@
-// /* Copyright (C) 2017 Canonical Ltd. */
+/* Copyright (C) 2017 Canonical Ltd. */
 'use strict';
 
-/*
-  In an effort to develop this init.js along side with the rest of the
-  app here are the changes you'll have to manually change to continue
-  working on the new system.
-
-  index.html.mako
-    - Uncomment the init-pkg.js script tags lines 300, 308.
-    - Uncomment the initialization code lines 353, 354.
-    - Comment the old init code lines 352, 357.
-  Makefile
-    - Uncomment the hack to generate the init-pkg file Line 221.
-
-  Code to still move over from app.js
-    - Y.juju.Cookies Line 50.
-    - widgets.AutodeployExtension Line 49.
-*/
-
+const ReactDOM = require('react-dom');
 const mixwith = require('mixwith');
 
+const acl = require('./store/env/acl');
+const analytics = require('./init/analytics');
 const utils = require('./init/utils');
+const jujulibConversionUtils = require('./init/jujulib-conversion-utils');
+const viewUtils = require('./views/utils');
 const hotkeys = require('./init/hotkeys');
 const csUser = require('./init/charmstore-user');
+const cookieUtil = require('./init/cookie-util');
+const BundleImporter = require('./init/bundle-importer');
+const EndpointsController = require('./init/endpoints-controller');
+const WebHandler = require('./store/env/web-handler');
+
+const newBakery = require('./init/utils/bakery-utils');
+const EnvironmentView = require('./init/topology/environment');
 
 const ComponentRenderersMixin = require('./init/component-renderers-mixin');
 const DeployerMixin = require('./init/deployer-mixin');
 
+// Hacks until all of the global references have been removed.
+window.juju.utils.RelationUtils = require('./init/relation-utils');
+
 const yui = window.yui;
+window.models = yui.namespace('juju.models');
 
 class GUIApp {
   constructor(config) {
@@ -43,7 +42,7 @@ class GUIApp {
       portion of the application has set this value prior to switching models.
       @type {String}
     */
-    this.modelUUID = config.jujuEnvUUID;
+    this.modelUUID = config.jujuEnvUUID || null;
     /**
       The default web page title.
       @type {String}
@@ -64,16 +63,6 @@ class GUIApp {
     */
     this.anonymousMode = false;
     /**
-      Reference to the changesUtils utilities.
-      @type {Object}
-    */
-    this.changesUtils = window.juju.utils.ChangesUtils;
-    /**
-      Reference to the relationUtils utilities.
-      @type {Object}
-    */
-    this.relationUtils = window.juju.utils.RelationUtils;
-    /**
       Stores the custom event handlers for the application.
       @type {Object}
     */
@@ -83,11 +72,6 @@ class GUIApp {
       @type {Integer}
     */
     this._dragLeaveTimer = null;
-    /**
-      Reference to the juju.Cookies instance.
-      @type {juju.Cookies}
-    */
-    this._cookieHandler = null;
     /**
       The keydown event listener from the hotkey activation.
       @type {Object}
@@ -121,7 +105,7 @@ class GUIApp {
     */
     this.users = csUser.create();
 
-    const webHandler = new yui.juju.environments.web.WebHandler();
+    const webHandler = new WebHandler();
     const stateGetter = () => this.state.current;
     const cookieSetter = (value, callback) => {
       this.charmstore.setAuthCookie(value, callback);
@@ -131,7 +115,7 @@ class GUIApp {
       Used to perform requests on a macaroon authenticated endpoints.
       @type {Object}
     */
-    this.bakery = yui.juju.bakeryutils.newBakery(
+    this.bakery = newBakery(
       config, this.user, stateGetter, cookieSetter, webHandler);
     /**
       A charm store API client instance.
@@ -148,7 +132,6 @@ class GUIApp {
       config, window.jujulib.bundleservice);
 
     this.ecs = this._setupEnvironmentChangeSet();
-
     const modelOptions = {
       user: this.user,
       ecs: this.ecs,
@@ -158,7 +141,7 @@ class GUIApp {
     };
     const controllerOptions = Object.assign({}, modelOptions);
     const environments = yui.juju.environments;
-    modelOptions.webHandler = new environments.web.WebHandler();
+    modelOptions.webHandler = new WebHandler();
     /**
       An API connection to the Juju model.
       @type {Object}
@@ -199,7 +182,7 @@ class GUIApp {
       Application instance of the endpointsController.
       @type {Object}
     */
-    this.endpointsController = new yui.juju.EndpointsController({
+    this.endpointsController = new EndpointsController({
       db: this.db,
       modelController: this.modelController
     });
@@ -213,7 +196,7 @@ class GUIApp {
       Generated send analytics method. Must be setup before state is set up as
       it is used by state and relies on the controllerAPI instance.
     */
-    this.sendAnalytics = yui.juju.sendAnalyticsFactory(
+    this.sendAnalytics = analytics.sendAnalyticsFactory(
       this.controllerAPI,
       window.dataLayer);
 
@@ -249,12 +232,12 @@ class GUIApp {
       Application instance of the bundle importer.
       @type {Object}
     */
-    this.bundleImporter = new yui.juju.BundleImporter({
+    this.bundleImporter = new BundleImporter({
       db: this.db,
       modelAPI: this.modelAPI,
       getBundleChanges: this.controllerAPI.getBundleChanges.bind(
         this.controllerAPI),
-      makeEntityModel: yui.juju.makeEntityModel,
+      makeEntityModel: jujulibConversionUtils.makeEntityModel,
       charmstore: this.charmstore,
       hideDragOverNotification: this._hideDragOverNotification.bind(this)
     });
@@ -269,9 +252,9 @@ class GUIApp {
       destroying a model.
       @type {Object}
     */
-    this.acl = new yui.juju.generateAcl(this.controllerAPI, this.modelAPI);
+    this.acl = new acl.generateAcl(this.controllerAPI, this.modelAPI);
     // Listen for window unloads and trigger the unloadWindow function.
-    window.onbeforeunload = yui.juju.views.utils.unloadWindow.bind(this);
+    window.onbeforeunload = utils.unloadWindow.bind(this);
 
     this._handleMaasServer();
     // Feed environment changes directly into the database.
@@ -311,20 +294,7 @@ class GUIApp {
         eventName, this._domEventHandlers['boundAppDragOverHandler']);
     });
 
-    /**
-      As a minor performance boost and to avoid potential rerenderings
-      because of rebinding functions in the render methods. Any method that
-      requires binding and is passed into components should be bound here
-      and then used across components.
-      @type {Object}
-    */
-    this._bound = {
-      addNotification: this.db.notifications.add.bind(this.db.notifications),
-      changeState: this.state.changeState.bind(this.state),
-      destroyModels: this.controllerAPI.destroyModels.bind(this.controllerAPI), // eslint-disable-line max-len
-      listModelsWithInfo: this.controllerAPI.listModelsWithInfo.bind(this.controllerAPI), // eslint-disable-line max-len
-      switchModel: yui.juju.views.utils.switchModel.bind(this, this.env)
-    };
+    this._bindRenderUtilities();
 
     /**
       Reference to the rendered topology.
@@ -332,8 +302,35 @@ class GUIApp {
     */
     this.topology = this._renderTopology();
     this._renderComponents();
-    this.state.bootstrap();
+    const result = this.state.bootstrap();
+    if (result.error) {
+      console.error(result.error);
+    }
   }
+
+  /**
+    As a minor performance boost and to avoid potential rerenderings
+    because of rebinding functions in the render methods. Any method that
+    requires binding and is passed into components should be bound here
+    and then used across components.
+  */
+  _bindRenderUtilities() {
+    /**
+      A collection of pre-bound methods to pass to render methods.
+      @type {Object}
+    */
+    this._bound = {
+      addNotification: this.db.notifications.add.bind(this.db.notifications),
+      changeState: this.state.changeState.bind(this.state),
+      destroyModels: this.controllerAPI.destroyModels.bind(this.controllerAPI), // eslint-disable-line max-len
+      listModelsWithInfo: this.controllerAPI.listModelsWithInfo.bind(this.controllerAPI) // eslint-disable-line max-len
+    };
+    // Bind switchModel separately to include the already bound
+    // addNotifications.
+    this._bound.switchModel = utils.switchModel.bind(
+      this, this.modelAPI, this._bound.addNotification);
+  }
+
   /**
     Creates a new instance of the charm store API. This method is idempotent.
     @param {object} config The app instantiation configuration.
@@ -374,7 +371,7 @@ class GUIApp {
       }
       return new BundleService(
         bundleServiceURL,
-        new yui.juju.environments.web.WebHandler());
+        new WebHandler());
     }
     return this.bundleService;
   }
@@ -416,10 +413,8 @@ class GUIApp {
     @param {Function} next - The next route handler.
   */
   authorizeCookieUse(state, next) {
-    var GTM_enabled = this.GTM_enabled;
-    if (GTM_enabled) {
-      this._cookieHandler = this._cookieHandler || new yui.juju.Cookies();
-      this._cookieHandler.check();
+    if (this.applicationConfig.GTM_enabled) {
+      cookieUtil.check(document);
     }
     next();
   }
@@ -478,6 +473,7 @@ class GUIApp {
       ['*', this._ensureControllerConnection.bind(this)],
       ['*', this.authorizeCookieUse.bind(this)],
       ['*', this.checkUserCredentials.bind(this)],
+      ['*', this._renderComponents.bind(this)],
       ['root',
         this._rootDispatcher.bind(this),
         this._clearRoot.bind(this)],
@@ -515,6 +511,9 @@ class GUIApp {
       ['gui.deploy',
         this._renderDeployment.bind(this),
         this._clearDeployment.bind(this)],
+      ['postDeploymentPanel',
+        this._displayPostDeployment.bind(this),
+        this._clearPostDeployment.bind(this)],
       // Nothing needs to be done at the top level when the hash changes.
       ['hash'],
       // special dd is handled by the root dispatcher as it requires /new
@@ -772,15 +771,6 @@ class GUIApp {
       }));
   }
 
-  /**
-    Hide the drag notifications.
-  */
-  _hideDragOverNotification() {
-    this.topology.fadeHelpIndicator(false);
-    ReactDOM.unmountComponentAtNode(
-      document.getElementById('drag-over-notification-container'));
-  }
-
   _controllerLoginHandler(entityPromise, evt) {
     const state = this.state;
     this.anonymousMode = false;
@@ -867,7 +857,7 @@ class GUIApp {
         !newState.profile &&
         newState.root !== 'account' &&
         (isLogin || !current.root) &&
-        this.gisf
+        this.applicationConfig.gisf
       ) {
         newState.profile = this.user.displayName;
       }
@@ -1110,7 +1100,7 @@ class GUIApp {
     if (!err) {
       return;
     }
-    if (!yui.juju.views.utils.isRedirectError(err)) {
+    if (!viewUtils.isRedirectError(err)) {
       // There is nothing to do in this case, and the user is already
       // prompted with the error in the login view.
       console.log(`cannot log into ${api.name}: ${err}`);
@@ -1153,7 +1143,7 @@ class GUIApp {
           uuid: this.modelUUID,
           server: publicHost.value,
           port: publicHost.port
-        }, null, null, null, true, false));
+        }), null, null, null, true, false);
     });
   }
 
@@ -1357,7 +1347,7 @@ class GUIApp {
     }
     console.log('sending discharge token to storefront');
     const content = 'discharge-token=' + dischargeToken;
-    const webhandler = new yui.juju.environments.web.WebHandler();
+    const webhandler = new WebHandler();
     webhandler.sendPostRequest(
       '/_login',
       {'Content-Type': 'application/x-www-form-urlencoded'},
@@ -1462,6 +1452,9 @@ class GUIApp {
     this.state.changeState({
       gui: {
         deploy: JSON.stringify(ddData)
+      },
+      postDeploymentPanel: {
+        entityId: ddData.id
       }
     });
   }
@@ -1543,7 +1536,7 @@ class GUIApp {
     @return {Object} Reference to the rendered topology.
   */
   _renderTopology() {
-    const topology = new yui.juju.views.environment({
+    const topology = new EnvironmentView({
       endpointsController: this.endpointsController,
       db: this.db,
       env: this.modelAPI,
@@ -1553,7 +1546,8 @@ class GUIApp {
       state: this.state,
       staticURL: this.applicationConfig.staticURL,
       sendAnalytics: this.sendAnalytics,
-      container: this.applicationConfig.container || '#main'
+      container: document.querySelector(
+        this.applicationConfig.container || '#main')
     });
     topology.render();
     // Trigger the resized method so that the topology fills the viewport.
@@ -1611,14 +1605,15 @@ class GUIApp {
       clearTimeout(this._dbChangedTimer);
     }
     // Destroy YUI classes.
-    this.modelAPI.destroy();
+    this.modelAPI && this.modelAPI.destroy();
     this.controllerAPI.destroy();
     this.db.destroy();
-    this.endpointsController.destroy();
+    this.endpointsController.destructor();
+    this.topology.destructor();
+    this._hotkeyListener.deactivate();
     // Detach event listeners.
-    const remove = document.removeEventListener;
+    const remove = document.removeEventListener.bind(document);
     const handlers = this._domEventHandlers;
-    this._hotkeyListener.detach();
     const ecsListener = handlers['renderDeploymentBarListener'];
     remove('ecs.changeSetModified', ecsListener);
     remove('ecs.currentCommitFinished', ecsListener);
